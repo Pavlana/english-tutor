@@ -62,8 +62,8 @@ async def test_call_anthropic_writes_llm_call():
     mock_write.assert_called_once()
     args = mock_write.call_args[0]
     assert args[0] == settings.model_sonnet  # model
-    assert args[1] == "test_agent"           # agent
-    assert args[2] == "sess-123"             # session_id
-    assert args[3] is fake_usage             # usage
-    assert isinstance(args[4], int)          # latency_ms
+    assert args[1] == "test_agent"  # agent
+    assert args[2] == "sess-123"  # session_id
+    assert args[3] is fake_usage  # usage
+    assert isinstance(args[4], int)  # latency_ms
     assert args[4] >= 0
