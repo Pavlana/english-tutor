@@ -13,5 +13,6 @@ def test_model_tier_constants():
 def test_settings_loads_api_key_from_env():
     with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key-abc"}):
         import src.config as config_module
+
         fresh = importlib.reload(config_module)
         assert fresh.settings.ANTHROPIC_API_KEY == "test-key-abc"

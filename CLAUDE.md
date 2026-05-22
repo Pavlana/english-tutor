@@ -11,7 +11,7 @@ A multi-agent English tutor (FastAPI backend) that runs structured learning sess
 ## Environment & commands
 
 - Python 3.12, managed with `uv`. Dependencies in `pyproject.toml`, locked in `uv.lock`.
-- Secrets in `.env` (git-ignored): `ANTHROPIC_API_KEY`, model IDs, `DATABASE_URL`. Never hardcode keys or model IDs.
+- Secrets in `.env` (git-ignored): `ANTHROPIC_API_KEY`, `DATABASE_URL`. Never hardcode keys or model IDs.
 - Run the API: `uv run uvicorn src.main:app --reload` — interactive docs at `/docs` (your manual test surface until there's a UI).
 - Run tests: `uv run pytest`
 - Lint/format (once added, Phase 0): `uv run ruff check .` and `uv run ruff format .`
@@ -32,12 +32,45 @@ Pre-implementation stub. `/health` returns ok. `/chat` makes one Anthropic call 
 - **Prompts live in `src/prompts/`** as version-controlled files, imported not inlined, so prompt changes are reviewable diffs.
 - **`session.tasks` is a JSON column**; vocabulary, learning logs, user profile are their own tables. Match the JSON shapes in architecture §9 exactly.
 
+## Model IDs (single source of truth — use these strings, no others)
+
+| Tier | Model ID |
+|------|----------|
+| opus | `claude-opus-4-7` |
+| sonnet | `claude-sonnet-4-6` |
+| haiku | `claude-haiku-4-5-20251001` |
+
+These are the values that go into `config.py`. Never write a model string anywhere else. If Anthropic releases a new model, update this table and `config.py` — nowhere else.
+
 ## Testing & evals
 
 - Evals are specced in `docs/english_tutor_evals.md`. Structural evals are pytest and ship **in the same PR as the agent they test** — never deferred.
 - Three layers: structural (shape, every change), behavioural (code-based + LLM-as-judge, incremental), regression (after prompts stabilise).
 - LLM-as-judge runs on Haiku. Log every eval result (input, output, pass/fail, timestamp) to `eval_results`.
 - A task-status must never be left `in_progress` after an agent exits — it's `complete` or `skipped`.
+
+## Code style
+
+- **Type hints everywhere** — all function parameters and return types, including `-> None`. Use Python 3.12 syntax: `list[str]`, `dict[str, int]`, `str | None` (not `Optional`, not `List`).
+- **Docstrings on all public functions and classes** — Google style. One line is fine for simple functions; use Args/Returns/Raises blocks when the function has non-trivial inputs, outputs, or failure modes.
+- **Inline comments for non-obvious logic only** — explain *why*, not *what*. Do not comment self-evident code.
+- **No magic numbers or magic strings** — name constants, don't inline them.
+- **Async functions must be async all the way** — never call `asyncio.run()` inside a function that is already in an async context.
+
+Ruff enforces all of the above — `ruff check .` will fail on missing docstrings (`D` rules, Google convention) and missing type annotations (`ANN` rules). A clean ruff check is required before any task is done.
+
+Docstring example (follow this format):
+```python
+def get_open_session(user_id: str) -> Session | None:
+    """Return the most recent in-progress session for a user, or None.
+
+    Args:
+        user_id: UUID string identifying the user.
+
+    Returns:
+        Session object if an open session exists, None otherwise.
+    """
+```
 
 ## Workflow
 
@@ -51,4 +84,6 @@ Pre-implementation stub. `/health` returns ok. `/chat` makes one Anthropic call 
 - Don't introduce an agent framework, vector DB, Postgres, auth, or Docker before Phase 9, or a frontend before Phase 10.
 - Don't call Anthropic outside `api_client`, or the DB outside `db/repo`.
 - Don't inline prompts or hardcode model IDs.
+- Don't use `os.getenv` directly anywhere — all config is read through the `Settings` object in `src/config.py` (pydantic-settings). One import, no scattered env reads.
+- Don't edit a test to make it pass — if a test fails, fix the implementation. Tests are the spec; they are not negotiable.
 - Don't mark a task `complete` with failing tests or partial implementation.

@@ -1,7 +1,16 @@
+"""Application settings loaded from environment variables and .env file."""
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """Typed application settings.
+
+    Secrets (ANTHROPIC_API_KEY, DATABASE_URL) are read from the environment
+    or .env file. Model tier constants are hardcoded defaults and are never
+    read from the environment.
+    """
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     ANTHROPIC_API_KEY: str
