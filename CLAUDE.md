@@ -20,7 +20,7 @@ A multi-agent English tutor (FastAPI backend) that runs structured learning sess
 
 ## Current state (update as phases land)
 
-Pre-implementation stub. `/health` returns ok. `/chat` makes one Anthropic call via `src/api_client.py` and returns text — no DB, no orchestrator, no agents, no tools, no token logging, no model tiering yet. Tests cover health + retry-on-500. **Phase 0 in the build plan is the next work.**
+Phase 0 complete. config.py (pydantic-settings, model tiers), AsyncAnthropic api_client (returns usage), observability.py (llm_calls logging), db/engine.py (SQLite). Phase 1 (persistence layer) is next.
 
 ## Architecture rules (enforce these)
 
