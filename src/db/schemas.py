@@ -1,6 +1,7 @@
 """SQLModel table definitions."""
 
 from datetime import datetime, timezone
+
 from sqlmodel import Field, SQLModel
 
 
