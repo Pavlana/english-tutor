@@ -327,9 +327,7 @@ def write_learning_log(
         grammar_focus=json.dumps(log_data.get("grammar_focus", [])),
         grammar_gap_summary=log_data.get("grammar_gap_summary", ""),
         session_notes=log_data.get("session_notes", ""),
-        recommended_topic_tags=json.dumps(
-            log_data.get("recommended_topic_tags", [])
-        ),
+        recommended_topic_tags=json.dumps(log_data.get("recommended_topic_tags", [])),
     )
     session.add(log)
     session.commit()
@@ -426,9 +424,7 @@ def upsert_vocabulary(
     return new_item
 
 
-def get_vocabulary_for_review(
-    user_id: str, session: DBSession
-) -> list[VocabularyItem]:
+def get_vocabulary_for_review(user_id: str, session: DBSession) -> list[VocabularyItem]:
     """Return all VocabularyItems for user_id with status "new" or "learning".
 
     Args:
