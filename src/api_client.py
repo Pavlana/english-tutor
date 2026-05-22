@@ -1,11 +1,13 @@
 """Tier-aware async Anthropic client — the only path to the model."""
 
+import time
 from typing import Any, Literal
 
 from anthropic import APIConnectionError, AsyncAnthropic, InternalServerError
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from src.config import settings
+from src.observability import write_llm_call
 
 _client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
@@ -42,6 +44,9 @@ async def call_anthropic(
 ) -> tuple[str, Any]:
     """Call the Anthropic API at the given tier and return (text, usage).
 
+    Every successful call writes an llm_calls row via write_llm_call.
+    This is enforced here so observability cannot be bypassed by call sites.
+
     Args:
         messages: Full conversation list sent to the API.
         tier: Model tier — determines model ID, max_tokens, and timeout.
@@ -66,10 +71,15 @@ async def call_anthropic(
     if system:
         kwargs["system"] = system
 
+    start = time.monotonic()
     response = await _client.messages.create(**kwargs)
+    latency_ms = int((time.monotonic() - start) * 1000)
 
     for block in response.content:
         if block.type == "text":
+            # Single-user MVP: sync DB write is acceptable here.
+            # For multi-user, wrap in asyncio.to_thread.
+            write_llm_call(model, agent, session_id, response.usage, latency_ms)
             return block.text, response.usage
 
     raise ValueError("No text block in response")
