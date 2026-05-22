@@ -7,6 +7,18 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from src.config import settings
 
+# Side-effect imports: registering all table classes with SQLModel.metadata
+# before create_db_and_tables() calls SQLModel.metadata.create_all().
+from src.db.schemas import (  # noqa: F401
+    EvalResult,
+    LearningLog,
+    LlmCall,
+    TutorSession,
+    User,
+    UserProfile,
+    VocabularyItem,
+)
+
 engine = create_engine(settings.DATABASE_URL)
 
 
