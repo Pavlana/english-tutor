@@ -1,11 +1,14 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from anthropic import InternalServerError
 from fastapi.testclient import TestClient
 
 from src.main import app
+from src.models import AgentResult
 
 client = TestClient(app)
+
+_PATCH_HANDLE = "src.orchestrator.handle"
+_PATCH_OPEN_SESSION = "src.routers.chat.get_open_session"
 
 
 def test_health():
@@ -15,18 +18,21 @@ def test_health():
 
 
 def test_chat_returns_response():
-    """POST /chat returns 200 with message and task_status after api_client refactor."""
-    fake_usage = MagicMock(input_tokens=10, output_tokens=20)
-    fake_block = MagicMock(type="text", text="Hello, student!")
-    fake_response = MagicMock(content=[fake_block], usage=fake_usage)
+    """POST /chat returns 200 with message and task_status from orchestrator."""
+    canned = AgentResult(
+        message="Hello, student!",
+        agent="listening",
+        task_status="complete",
+        usage=None,
+    )
+    fake_session = MagicMock()
+    fake_session.session_id = "sess-abc"
 
     with (
-        patch(
-            "src.api_client._client.messages.create", new_callable=AsyncMock
-        ) as mock_create,
-        patch("src.api_client.write_llm_call"),
+        patch(_PATCH_HANDLE, new_callable=AsyncMock) as mock_handle,
+        patch(_PATCH_OPEN_SESSION, return_value=fake_session),
     ):
-        mock_create.return_value = fake_response
+        mock_handle.return_value = canned
         response = client.post(
             "/chat",
             json={"user_id": "test-user", "message": "hi"},
@@ -35,26 +41,20 @@ def test_chat_returns_response():
     assert response.status_code == 200
     body = response.json()
     assert body["message"] == "Hello, student!"
-    assert body["agent"] == "orchestrator"
-    assert body["task_status"] == "in_progress"
+    assert body["agent"] == "listening"
+    assert body["task_status"] == "complete"
     assert body["error"] is None
-    assert "session_id" in body
+    assert body["session_id"] == "sess-abc"
 
 
 def test_retries_on_500():
-    """Three SDK failures exhaust retries and return api_unavailable error."""
-    with patch(
-        "src.api_client._client.messages.create", new_callable=AsyncMock
-    ) as mock_create:
-        mock_create.side_effect = InternalServerError(
-            message="server error",
-            response=MagicMock(status_code=500),
-            body={},
-        )
+    """Orchestrator failure returns api_unavailable error response."""
+    with patch(_PATCH_HANDLE, new_callable=AsyncMock) as mock_handle:
+        mock_handle.side_effect = RuntimeError("downstream failure")
         response = client.post(
             "/chat",
             json={"user_id": "test-user", "message": "hi"},
         )
-        assert mock_create.call_count == 3
-        assert response.json()["error"] == "api_unavailable"
-        assert response.json()["task_status"] == "in_progress"
+
+    assert response.json()["error"] == "api_unavailable"
+    assert response.json()["task_status"] == "in_progress"
