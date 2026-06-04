@@ -6,7 +6,7 @@ holds no in-memory state between HTTP requests.
 """
 
 import json
-from collections.abc import Callable
+from types import ModuleType
 
 from sqlmodel import Session as DBSession
 
@@ -23,11 +23,13 @@ from src.topic_generator import generate_topic
 _TASK_ORDER: list[str] = ["listening", "writing", "speaking", "grammar"]
 _RESUMABLE_STATUSES: frozenset[str] = frozenset({"not_started", "in_progress"})
 
-_TASK_AGENTS: dict[str, Callable] = {
-    "listening": listening.run,
-    "writing": writing.run,
-    "speaking": speaking.run,
-    "grammar": grammar.run,
+# Keyed by task name → agent module. `.run` is looked up at dispatch time so
+# that patching the module attribute in tests intercepts the call correctly.
+_TASK_MODULES: dict[str, ModuleType] = {
+    "listening": listening,
+    "writing": writing,
+    "speaking": speaking,
+    "grammar": grammar,
 }
 
 
@@ -80,7 +82,7 @@ async def handle(
         if next_task_name is None:
             return await feedback.run(message, open_ts, db_session)
 
-        return await _TASK_AGENTS[next_task_name](message, open_ts, db_session)
+        return await _TASK_MODULES[next_task_name].run(message, open_ts, db_session)
 
     # ── Branch 2: no open session — check for a learning log ────────────────
     learning_log = get_latest_learning_log(user_id, db_session)
