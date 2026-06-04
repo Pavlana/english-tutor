@@ -15,9 +15,7 @@ from src.db.repo import (
     get_open_session,
 )
 from src.models import AgentResult
-
-# TODO(task-2.3): replace with real import once src/topic_generator.py exists
-# from src.topic_generator import generate_topic
+from src.topic_generator import generate_topic
 
 # TODO(task-2.x): replace with real imports once src/agents/ exists
 # from src.agents.onboarding import run as run_onboarding
@@ -96,9 +94,9 @@ async def handle(
     # ── Branch 2: no open session — check for a learning log ────────────────
     learning_log = get_latest_learning_log(user_id, db_session)
     if learning_log is not None:
-        # TODO(task-2.3): replace stub with real call:
-        #   topic = await generate_topic(user_profile, learning_log)
-        topic = "general english"  # stub until task 2.3
+        # user_profile is fetched by the router and will be passed in task 2.x;
+        # for now pass an empty dict — generate_topic handles missing keys gracefully.
+        topic = await generate_topic({}, learning_log)
 
         create_session(user_id, topic, db_session)
 
