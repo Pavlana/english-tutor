@@ -6,25 +6,29 @@ holds no in-memory state between HTTP requests.
 """
 
 import json
+from collections.abc import Callable
 
 from sqlmodel import Session as DBSession
 
+from src.agents import feedback, grammar, listening, onboarding, speaking, writing
 from src.db.repo import (
     create_session,
     get_latest_learning_log,
     get_open_session,
 )
+from src.db.schemas import TutorSession
 from src.models import AgentResult
 from src.topic_generator import generate_topic
 
-# TODO(task-2.x): replace with real imports once src/agents/ exists
-# from src.agents.onboarding import run as run_onboarding
-# from src.agents.listening import run as run_listening
-# from src.agents.feedback import run as run_feedback
-
 _TASK_ORDER: list[str] = ["listening", "writing", "speaking", "grammar"]
 _RESUMABLE_STATUSES: frozenset[str] = frozenset({"not_started", "in_progress"})
-_TERMINAL_STATUSES: frozenset[str] = frozenset({"complete", "skipped"})
+
+_TASK_AGENTS: dict[str, Callable] = {
+    "listening": listening.run,
+    "writing": writing.run,
+    "speaking": speaking.run,
+    "grammar": grammar.run,
+}
 
 
 def _next_task(tasks: dict) -> str | None:
@@ -74,45 +78,18 @@ async def handle(
         next_task_name = _next_task(tasks)
 
         if next_task_name is None:
-            # All tasks complete or skipped — hand off to feedback agent.
-            # TODO(task-2.x): dispatch to run_feedback(open_ts, db_session)
-            return AgentResult(
-                message="[feedback stub] All tasks done — feedback coming soon.",
-                agent="feedback",
-                task_status="not_started",
-                usage=None,
-            )
+            return await feedback.run(message, open_ts, db_session)
 
-        # TODO(task-2.x): dispatch to the agent for next_task_name
-        return AgentResult(
-            message=f"[{next_task_name} stub] Resuming your session.",
-            agent=next_task_name,
-            task_status="in_progress",
-            usage=None,
-        )
+        return await _TASK_AGENTS[next_task_name](message, open_ts, db_session)
 
     # ── Branch 2: no open session — check for a learning log ────────────────
     learning_log = get_latest_learning_log(user_id, db_session)
     if learning_log is not None:
-        # user_profile is fetched by the router and will be passed in task 2.x;
-        # for now pass an empty dict — generate_topic handles missing keys gracefully.
+        # user_profile will be fetched and passed once the router is wired in
+        # a later phase; pass an empty dict for now.
         topic = await generate_topic({}, learning_log)
-
-        create_session(user_id, topic, db_session)
-
-        # TODO(task-2.x): dispatch to run_listening(new_session, db_session)
-        return AgentResult(
-            message=f"[listening stub] Starting new session on '{topic}'.",
-            agent="listening",
-            task_status="not_started",
-            usage=None,
-        )
+        new_session: TutorSession = create_session(user_id, topic, db_session)
+        return await listening.run(message, new_session, db_session)
 
     # ── Branch 3: first ever visit — onboarding ──────────────────────────────
-    # TODO(task-2.x): dispatch to run_onboarding(user_id, message, db_session)
-    return AgentResult(
-        message="[onboarding stub] Welcome! Let's get started.",
-        agent="onboarding",
-        task_status="not_started",
-        usage=None,
-    )
+    return await onboarding.run(message, user_id, db_session)

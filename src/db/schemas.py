@@ -61,6 +61,11 @@ class UserProfile(SQLModel, table=True):
 
     List fields (grammar_gaps, grammar_strengths, interests) are stored as
     JSON strings and deserialised by the repo layer.
+
+    assessment_method values:
+      "self_declared_novice"  — A1 defaults set without conversation; may be
+                                promoted by the Feedback agent after session 1.
+      "conversation_assessed" — profile derived from evaluated onboarding transcript.
     """
 
     user_id: str = Field(primary_key=True)
@@ -71,6 +76,7 @@ class UserProfile(SQLModel, table=True):
     confidence_level: str
     interests: str  # JSON list
     onboarding_transcript: str
+    assessment_method: str = Field(default="conversation_assessed")
 
 
 class TutorSession(SQLModel, table=True):
