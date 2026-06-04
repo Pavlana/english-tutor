@@ -20,7 +20,9 @@ A multi-agent English tutor (FastAPI backend) that runs structured learning sess
 
 ## Current state (update as phases land)
 
-Phase 0 complete. config.py (pydantic-settings, model tiers), AsyncAnthropic api_client (returns usage), observability.py (llm_calls logging), db/engine.py (SQLite). Phase 1 (persistence layer) is next.
+Phase 2 complete. AgentResult contract, deterministic orchestrator, topic
+generation (Opus), six agent stubs, thin chat.py router. Full session
+driveable end-to-end with stub agents. Phase 3 (onboarding agent) is next.
 
 ## Architecture rules (enforce these)
 

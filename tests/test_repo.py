@@ -35,6 +35,7 @@ _PROFILE = {
     "confidence_level": "medium",
     "interests": ["technology", "travel"],
     "onboarding_transcript": "some transcript",
+    "assessment_method": "conversation_assessed",
 }
 
 _LOG_DATA = {

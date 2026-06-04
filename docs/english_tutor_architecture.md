@@ -42,30 +42,46 @@ On any session-opening message ("hi", "I'm here", etc.):
 ---
 
 ### Onboarding Agent (runs once, ever)
-**Role:** Establish user's CEFR level, grammar baseline, interests. Appears as friendly conversation — evaluation is invisible to user.
+**Role:** Establish user's CEFR level, grammar baseline, interests. Runs once at first contact.
 
-**Flow:**
-1. Conversation agent: 4–6 exchange open chat ("tell me about yourself, what brings you here")
-2. Silent evaluator: takes full transcript, outputs structured user profile
-3. Writes user profile to DB
-4. Generates first learning log from profile
-5. Hands off to Orchestrator to start first session
+**Step 1 — Level selection (no English required):**
+The agent sends a single question before any conversation begins:
+> "Are you a complete beginner, or do you already speak some English?"
+> [ I'm a complete beginner ] [ I know some English ]
 
-**Evaluator output (user profile):**
-```json
-{
-  "user_id": "uuid",
-  "cefr_level": "B1",
-  "vocabulary_range": "adequate, some repetition",
-  "grammar_gaps": ["passive voice", "reported speech"],
-  "grammar_strengths": ["present perfect", "basic conditionals"],
-  "confidence_level": "medium",
-  "interests": ["technology", "travel"],
-  "onboarding_transcript": "..."
-}
-```
+The user responds with one of two keywords: `novice` or `experienced`.
+This is the only moment where the agent branches. All subsequent logic is path-specific.
 
-**Note:** Onboarding conversation agent is NOT the Speaking agent. Different prompt, different goal, different output. Runs once only.
+**NOVICE path (user selects "I'm a complete beginner"):**
+1. Skip conversation entirely — no LLM evaluation needed
+2. Write a default A1 profile to DB with `assessment_method: "self_declared_novice"`
+3. Generate first learning log from the default profile
+4. Hand off to Orchestrator → first session starts at A1 level
+
+Default A1 profile values:
+- `cefr_level`: "A1"
+- `vocabulary_range`: "very limited, foundational words only"
+- `grammar_gaps`: ["present simple", "basic sentence structure"]
+- `grammar_strengths`: []
+- `confidence_level`: "low"
+- `interests`: [] (left empty; topic generator will use generic starter topics)
+- `onboarding_transcript`: ""
+
+**EXPERIENCED path (user selects "I know some English"):**
+1. Conversation agent (Sonnet): 3–5 exchange scaffolded chat
+   - Starts with constrained questions ("What's your name? Where are you from? Why are you learning English?")
+   - Ends with one open question ("Tell me a bit about your work or studies")
+   - Turn count persisted to DB (max 5 turns enforced)
+2. Silent evaluator (Opus): takes full transcript → outputs structured user profile
+3. Write evaluated profile to DB with `assessment_method: "conversation_assessed"`
+4. Generate first learning log from evaluated profile
+5. Hand off to Orchestrator → first session starts at assessed level
+
+**Reassessment note:** Novice profiles carry `assessment_method: "self_declared_novice"`.
+The Feedback agent reads this flag after session 1 and can promote the CEFR level upward
+if actual performance signals exceed A1. The flag is removed on first reassessment.
+
+**Note:** Onboarding is NOT the Speaking agent. Different prompt, different goal, different output. Runs once only.
 
 ---
 
@@ -339,9 +355,16 @@ No hardcoded topic list in current iteration. LLM chooses based on profile and p
   "grammar_strengths": ["present perfect", "basic conditionals"],
   "confidence_level": "medium",
   "interests": ["technology", "travel"],
-  "onboarding_transcript": "..."
+  "onboarding_transcript": "...",
+  "assessment_method": "conversation_assessed"
 }
 ```
+
+**`assessment_method` values:** `"self_declared_novice"` | `"conversation_assessed"`
+
+`self_declared_novice` means the profile was set to A1 defaults without conversation.
+The Feedback agent reads this flag after session 1 and may promote the level based on
+actual performance. The flag is updated to `"conversation_assessed"` on reassessment.
 
 ---
 
