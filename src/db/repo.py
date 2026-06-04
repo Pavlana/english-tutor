@@ -120,6 +120,7 @@ def get_user_profile(user_id: str, session: DBSession) -> dict | None:
         "confidence_level": profile.confidence_level,
         "interests": json.loads(profile.interests),
         "onboarding_transcript": profile.onboarding_transcript,
+        "assessment_method": profile.assessment_method,
     }
 
 
@@ -153,6 +154,9 @@ def write_user_profile(
         confidence_level=profile_data["confidence_level"],
         interests=json.dumps(profile_data["interests"]),
         onboarding_transcript=profile_data["onboarding_transcript"],
+        assessment_method=profile_data.get(
+            "assessment_method", "conversation_assessed"
+        ),
     )
     session.add(profile)
     session.commit()
