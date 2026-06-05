@@ -134,7 +134,9 @@ async def test_all_tasks_complete_routes_to_feedback(db_session):
         ts.session_id,
     ).tasks
     tasks = json.loads(tasks_raw)
-    assert all(v["status"] == "complete" for v in tasks.values())
+    # "onboarding" is always present but not part of session routing.
+    routing_tasks = ("listening", "writing", "speaking", "grammar")
+    assert all(tasks[k]["status"] == "complete" for k in routing_tasks)
 
     with patch(_FEEDBACK, new_callable=AsyncMock) as mock_run:
         mock_run.return_value = _result("feedback")
@@ -142,3 +144,23 @@ async def test_all_tasks_complete_routes_to_feedback(db_session):
 
     assert result.agent == "feedback"
     mock_run.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Routing guard — user with learning log never routes to onboarding
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_user_with_learning_log_never_routes_to_onboarding(db_session):
+    write_learning_log("user-log-guard", None, {}, db_session)
+
+    with (
+        patch(_GENERATE_TOPIC, new_callable=AsyncMock) as mock_topic,
+        patch(_LISTENING, new_callable=AsyncMock) as mock_run,
+    ):
+        mock_topic.return_value = "history"
+        mock_run.return_value = _result("listening")
+        result = await handle("hi", "user-log-guard", db_session)
+
+    assert result.agent != "onboarding"

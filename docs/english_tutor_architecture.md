@@ -44,42 +44,73 @@ On any session-opening message ("hi", "I'm here", etc.):
 ### Onboarding Agent (runs once, ever)
 **Role:** Establish user's CEFR level, grammar baseline, interests. Runs once at first contact.
 
-**Step 1 — Level selection (no English required):**
-The agent sends a single question before any conversation begins:
-> "Are you a complete beginner, or do you already speak some English?"
-> [ I'm a complete beginner ] [ I know some English ]
+**Implementation:** `src/agents/onboarding.py`. Driven by a DB-backed state
+machine (`TutorSession.turn_count`). All state is persisted — no in-memory
+turn variables. The orchestrator creates a dedicated `TutorSession` with
+`topic="onboarding"` on first contact and routes subsequent messages back to
+this agent while the session remains open.
 
-The user responds with one of two keywords: `novice` or `experienced`.
-This is the only moment where the agent branches. All subsequent logic is path-specific.
+**State machine (`turn_count` → action):**
 
-**NOVICE path (user selects "I'm a complete beginner"):**
-1. Skip conversation entirely — no LLM evaluation needed
-2. Write a default A1 profile to DB with `assessment_method: "self_declared_novice"`
-3. Generate first learning log from the default profile
-4. Hand off to Orchestrator → first session starts at A1 level
+| `turn_count` | Action |
+|---|---|
+| 0 | Send level-selection question; set task `"in_progress"`; advance to 1 |
+| 1 | Parse reply: `"beginner"` → NOVICE path, `"experienced"` → EXPERIENCED path, anything else → re-ask |
+| ≥ 2 | EXPERIENCED path continuation (conversation or evaluation) |
+
+**Level-selection keywords (case-insensitive):**
+- `BEGINNER` (`src/agents/onboarding.py::NOVICE_KEYWORD`)
+- `EXPERIENCED` (`src/agents/onboarding.py::EXPERIENCED_KEYWORD`)
+
+**Transcript storage:** Stored as a JSON list of `{"role", "content"}` dicts in
+`tasks["onboarding"]["transcript"]` on the `TutorSession` row. `"onboarding"` is
+a standard task name (alongside listening/writing/speaking/grammar) so all repo
+functions apply. Updated via `repo.update_task()` after each turn.
+
+---
+
+**NOVICE path (`"beginner"` selected) — no LLM calls:**
+1. Build default A1 profile dict (all values are module-level constants).
+2. Call `repo.write_user_profile()` with `assessment_method: "self_declared_novice"`.
+3. Call `_generate_first_log()` to seed the first learning log.
+4. Mark onboarding task `"complete"` via `repo.set_task_status()`.
+5. Close the `TutorSession` (`status = "complete"`) so the orchestrator's next
+   call falls through to branch 2 (learning log found) and starts the first real session.
 
 Default A1 profile values:
-- `cefr_level`: "A1"
-- `vocabulary_range`: "very limited, foundational words only"
-- `grammar_gaps`: ["present simple", "basic sentence structure"]
-- `grammar_strengths`: []
-- `confidence_level`: "low"
-- `interests`: [] (left empty; topic generator will use generic starter topics)
-- `onboarding_transcript`: ""
+- `cefr_level`: `"A1"`
+- `vocabulary_range`: `"very limited, foundational words only"`
+- `grammar_gaps`: `["present simple", "basic sentence structure"]`
+- `grammar_strengths`: `[]`
+- `confidence_level`: `"low"`
+- `interests`: `[]` (topic generator uses generic starter topics)
+- `onboarding_transcript`: `""`
+- `assessment_method`: `"self_declared_novice"`
 
-**EXPERIENCED path (user selects "I know some English"):**
-1. Conversation agent (Sonnet): 3–5 exchange scaffolded chat
-   - Starts with constrained questions ("What's your name? Where are you from? Why are you learning English?")
-   - Ends with one open question ("Tell me a bit about your work or studies")
-   - Turn count persisted to DB (max 5 turns enforced)
-2. Silent evaluator (Opus): takes full transcript → outputs structured user profile
-3. Write evaluated profile to DB with `assessment_method: "conversation_assessed"`
-4. Generate first learning log from evaluated profile
-5. Hand off to Orchestrator → first session starts at assessed level
+---
+
+**EXPERIENCED path (`"experienced"` selected) — Sonnet conversation + Opus evaluation:**
+
+Turn flow:
+- `turn_count 1`: Send hardcoded opening question (name, country, reason for learning). Mark task `"in_progress"`. Advance to 2.
+- `turn_count 2–4`: Append user message to transcript, call Sonnet (`tier="sonnet"`, `agent="onboarding_conversation"`), append reply, advance turn count.
+- `turn_count 5` (`_MAX_CONVERSATION_TURNS`): Call `_evaluate_transcript()`.
+
+`_evaluate_transcript()`:
+1. Read full transcript from `tasks["onboarding"]["transcript"]`.
+2. Call Opus (`tier="opus"`, `agent="onboarding_evaluator"`) with transcript; model returns JSON matching UserProfile shape.
+3. Parse JSON. On failure: fall back to A1 defaults (user is never blocked by a bad model response).
+4. Set `assessment_method: "conversation_assessed"` on parsed profile.
+5. Call `repo.write_user_profile()`.
+6. Call `_generate_first_log()`.
+7. Mark onboarding task `"complete"`; close `TutorSession` (`status = "complete"`).
+
+---
 
 **Reassessment note:** Novice profiles carry `assessment_method: "self_declared_novice"`.
 The Feedback agent reads this flag after session 1 and can promote the CEFR level upward
-if actual performance signals exceed A1. The flag is removed on first reassessment.
+if actual performance signals exceed A1. The flag is updated to `"conversation_assessed"`
+on reassessment.
 
 **Note:** Onboarding is NOT the Speaking agent. Different prompt, different goal, different output. Runs once only.
 

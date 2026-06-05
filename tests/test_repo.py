@@ -110,7 +110,13 @@ def test_create_session_defaults(db_session):
 
     assert ts.status == "in_progress"
     tasks = json.loads(ts.tasks)
-    assert set(tasks.keys()) == {"listening", "writing", "speaking", "grammar"}
+    assert set(tasks.keys()) == {
+        "listening",
+        "writing",
+        "speaking",
+        "grammar",
+        "onboarding",
+    }
     for task_data in tasks.values():
         assert task_data["status"] == "not_started"
 

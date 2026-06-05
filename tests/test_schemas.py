@@ -60,6 +60,12 @@ def test_tutorsession_default_tasks_has_all_four_keys_not_started():
         db.refresh(row)
 
     tasks = json.loads(row.tasks)
-    assert set(tasks.keys()) == {"listening", "writing", "speaking", "grammar"}
+    assert set(tasks.keys()) == {
+        "listening",
+        "writing",
+        "speaking",
+        "grammar",
+        "onboarding",
+    }
     for task_data in tasks.values():
         assert task_data["status"] == "not_started"
