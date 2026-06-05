@@ -17,7 +17,7 @@ from src.db.repo import (
     write_learning_log,
     write_user_profile,
 )
-from src.db.schemas import TutorSession
+from src.db.schemas import LearningLog, TutorSession
 from src.models import AgentResult
 
 NOVICE_KEYWORD: str = "beginner"
@@ -89,18 +89,56 @@ def _save_transcript(
     update_task(session_id, "onboarding", {"transcript": transcript}, db_session)
 
 
-def _generate_first_log(user_id: str, db_session: DBSession) -> dict:
-    """Stub: generate the first learning log from a new profile (task 3.5).
+# TODO(task-3.6): replace with importlib.resources read of
+# src/prompts/onboarding_log.txt
+_LOG_GENERATOR_SYSTEM_PROMPT: str = (
+    "You are a language tutor creating a learner's first session plan. "
+    "Based on the provided user profile, produce a JSON object with these "
+    "exact keys: vocabulary_to_review (array of strings — leave empty [] for "
+    "novice profiles), grammar_focus (array of strings matching grammar_gaps "
+    "from the profile), grammar_gap_summary (one sentence summary of the main "
+    "grammar challenge), session_notes (one sentence describing the learner's "
+    "starting point), recommended_topic_tags (array of 2–3 topic strings drawn "
+    "from the learner's interests, or [\"everyday life\", \"introductions\"] if "
+    "interests are empty). Return ONLY valid JSON — no prose, no markdown fences."
+)
+
+
+async def _generate_first_log(
+    user_id: str, profile: dict, db_session: DBSession
+) -> LearningLog:
+    """Generate the first learning log from the user's onboarding profile.
+
+    Calls Opus to produce a structured log seeded from the profile, then
+    persists it via repo.write_learning_log.
 
     Args:
         user_id: The user whose first log to generate.
+        profile: The written UserProfile dict (plain Python, not a DB row).
         db_session: Active database session.
 
     Returns:
-        A minimal log dict placeholder until task 3.5 is implemented.
+        The newly written LearningLog row.
     """
-    log = write_learning_log(user_id, None, {}, db_session)
-    return {"log_id": log.log_id}
+    raw, _ = await call_anthropic(
+        messages=[{"role": "user", "content": json.dumps(profile)}],
+        tier="opus",
+        agent="onboarding_log_generator",
+        system=_LOG_GENERATOR_SYSTEM_PROMPT,
+    )
+
+    try:
+        log_data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        log_data = {
+            "vocabulary_to_review": [],
+            "grammar_focus": profile.get("grammar_gaps", []),
+            "grammar_gap_summary": "Starting from scratch — baseline to be established.",  # noqa: E501
+            "session_notes": "First session — no prior data.",
+            "recommended_topic_tags": ["everyday life", "introductions"],
+        }
+
+    return write_learning_log(user_id, None, log_data, db_session)
 
 
 _EVALUATOR_WELCOME: str = (
@@ -174,7 +212,7 @@ async def _evaluate_transcript(
     profile_data.setdefault("onboarding_transcript", transcript_text)
 
     write_user_profile(session.user_id, profile_data, db_session)
-    _generate_first_log(session.user_id, db_session)
+    await _generate_first_log(session.user_id, profile_data, db_session)
     set_task_status(session.session_id, "onboarding", "complete", db_session)
 
     session.status = "complete"
@@ -212,7 +250,7 @@ async def _novice_path(session: TutorSession, db_session: DBSession) -> AgentRes
         "assessment_method": _A1_ASSESSMENT_METHOD,
     }
     write_user_profile(session.user_id, profile, db_session)
-    _generate_first_log(session.user_id, db_session)
+    await _generate_first_log(session.user_id, profile, db_session)
     set_task_status(session.session_id, "onboarding", "complete", db_session)
 
     # Close the onboarding session so the orchestrator's next call falls through
