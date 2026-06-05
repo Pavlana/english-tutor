@@ -134,7 +134,9 @@ async def test_all_tasks_complete_routes_to_feedback(db_session):
         ts.session_id,
     ).tasks
     tasks = json.loads(tasks_raw)
-    assert all(v["status"] == "complete" for v in tasks.values())
+    # "onboarding" is always present but not part of session routing.
+    routing_tasks = ("listening", "writing", "speaking", "grammar")
+    assert all(tasks[k]["status"] == "complete" for k in routing_tasks)
 
     with patch(_FEEDBACK, new_callable=AsyncMock) as mock_run:
         mock_run.return_value = _result("feedback")

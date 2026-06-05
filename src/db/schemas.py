@@ -22,6 +22,7 @@ _DEFAULT_TASKS: str = json.dumps(
         "writing": {"status": "not_started", "summary": None},
         "speaking": {"status": "not_started", "summary": None},
         "grammar": {"status": "not_started", "summary": None},
+        "onboarding": {"status": "not_started", "transcript": []},
     }
 )
 

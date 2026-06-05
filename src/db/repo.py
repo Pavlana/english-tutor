@@ -21,7 +21,7 @@ from src.db.schemas import (
 )
 
 _VALID_TASK_NAMES: frozenset[str] = frozenset(
-    {"listening", "writing", "speaking", "grammar"}
+    {"listening", "writing", "speaking", "grammar", "onboarding"}
 )
 
 

@@ -12,3 +12,6 @@ wheels/
 .env
 
 .DS_Store
+
+
+docs/
