@@ -76,6 +76,11 @@ async def handle(
     # ── Branch 1: resume an open session ────────────────────────────────────
     open_ts = get_open_session(user_id, db_session)
     if open_ts is not None:
+        # Onboarding uses a dedicated session (topic="onboarding") to track
+        # turn state before a learning log or real session exists.
+        if open_ts.topic == "onboarding":
+            return await onboarding.run(message, open_ts, db_session)
+
         tasks = json.loads(open_ts.tasks)
         next_task_name = _next_task(tasks)
 
@@ -93,5 +98,6 @@ async def handle(
         new_session: TutorSession = create_session(user_id, topic, db_session)
         return await listening.run(message, new_session, db_session)
 
-    # ── Branch 3: first ever visit — onboarding ──────────────────────────────
-    return await onboarding.run(message, user_id, db_session)
+    # ── Branch 3: first ever visit — create onboarding session, run agent ────
+    onboarding_session: TutorSession = create_session(user_id, "onboarding", db_session)
+    return await onboarding.run(message, onboarding_session, db_session)
