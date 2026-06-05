@@ -7,6 +7,7 @@ Turn-count-driven state machine (all state in DB, no in-memory variables):
 """
 
 import json
+from pathlib import Path
 
 from sqlmodel import Session as DBSession
 
@@ -19,6 +20,8 @@ from src.db.repo import (
 )
 from src.db.schemas import LearningLog, TutorSession
 from src.models import AgentResult
+
+_PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 NOVICE_KEYWORD: str = "beginner"
 EXPERIENCED_KEYWORD: str = "experienced"
@@ -35,14 +38,9 @@ _FIRST_QUESTION: str = (
     "where are you from, and what brings you to learning English?"
 )
 
-# TODO(task-3.6): replace with importlib.resources read of
-# src/prompts/onboarding_conversation.txt
 _CONVERSATION_SYSTEM_PROMPT: str = (
-    "You are a warm, encouraging English tutor conducting a short "
-    "getting-to-know-you conversation. Ask one natural follow-up question at a "
-    "time about the learner's background, interests, and reasons for learning "
-    "English. Keep responses concise and friendly."
-)
+    _PROMPTS_DIR / "onboarding_conversation.txt"
+).read_text(encoding="utf-8")
 
 # Max experienced-path turns before the evaluator is triggered.
 _MAX_CONVERSATION_TURNS: int = 5
@@ -89,18 +87,8 @@ def _save_transcript(
     update_task(session_id, "onboarding", {"transcript": transcript}, db_session)
 
 
-# TODO(task-3.6): replace with importlib.resources read of
-# src/prompts/onboarding_log.txt
-_LOG_GENERATOR_SYSTEM_PROMPT: str = (
-    "You are a language tutor creating a learner's first session plan. "
-    "Based on the provided user profile, produce a JSON object with these "
-    "exact keys: vocabulary_to_review (array of strings — leave empty [] for "
-    "novice profiles), grammar_focus (array of strings matching grammar_gaps "
-    "from the profile), grammar_gap_summary (one sentence summary of the main "
-    "grammar challenge), session_notes (one sentence describing the learner's "
-    "starting point), recommended_topic_tags (array of 2–3 topic strings drawn "
-    "from the learner's interests, or [\"everyday life\", \"introductions\"] if "
-    "interests are empty). Return ONLY valid JSON — no prose, no markdown fences."
+_LOG_GENERATOR_SYSTEM_PROMPT: str = (_PROMPTS_DIR / "onboarding_log.txt").read_text(
+    encoding="utf-8"
 )
 
 
@@ -146,17 +134,8 @@ _EVALUATOR_WELCOME: str = (
     "Your first session is ready — let's get started."
 )
 
-# TODO(task-3.6): replace with importlib.resources read of
-# src/prompts/onboarding_evaluator.txt
-_EVALUATOR_SYSTEM_PROMPT: str = (
-    "You are a language assessment expert. Based on the conversation transcript "
-    "provided, produce a JSON object that accurately reflects the learner's "
-    "English proficiency. Return ONLY valid JSON — no prose, no markdown fences. "
-    "The JSON must have these exact keys: cefr_level (string, e.g. 'B1'), "
-    "vocabulary_range (string description), grammar_gaps (array of strings), "
-    "grammar_strengths (array of strings), confidence_level (one of: 'low', "
-    "'medium', 'high'), interests (array of strings inferred from conversation), "
-    "onboarding_transcript (string, the full transcript as plain text)."
+_EVALUATOR_SYSTEM_PROMPT: str = (_PROMPTS_DIR / "onboarding_evaluator.txt").read_text(
+    encoding="utf-8"
 )
 
 _FALLBACK_PROFILE: dict = {
