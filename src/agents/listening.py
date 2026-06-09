@@ -12,6 +12,7 @@ tasks["listening"] so every turn is stateless between HTTP requests.
 """
 
 import json
+from pathlib import Path
 from typing import Any
 
 from sqlmodel import Session as DBSession
@@ -24,33 +25,20 @@ from src.models import AgentResult
 from src.tools.content import acquire_content
 
 # ---------------------------------------------------------------------------
-# Prompt placeholders — replaced by real file reads in task 4.4.
+# Prompt files — loaded once at import time from src/prompts/.
 # ---------------------------------------------------------------------------
 
-# TODO (task 4.4): replace with (_PROMPTS_DIR / "vocab_extraction.txt").read_text()
-_VOCAB_EXTRACTION_PROMPT: str = (
-    "Extract exactly 5 vocabulary words from the text. "
-    "Return a JSON array of 5 strings only. No prose."
-)
+_PROMPTS_DIR: Path = Path(__file__).parent.parent / "prompts"
 
-# TODO (task 4.4): replace with
-# (_PROMPTS_DIR / "comprehension_questions.txt").read_text()
+_VOCAB_EXTRACTION_PROMPT: str = (_PROMPTS_DIR / "vocab_extraction.txt").read_text()
+
 _COMPREHENSION_QUESTIONS_PROMPT: str = (
-    "Generate 3 to 5 comprehension questions based on the text. "
-    "Return a JSON array of question strings only. No prose."
-)
+    _PROMPTS_DIR / "comprehension_questions.txt"
+).read_text()
 
-# TODO (task 4.4): replace with (_PROMPTS_DIR / "answer_evaluation.txt").read_text()
-_ANSWER_EVALUATION_PROMPT: str = (
-    "Evaluate the user's answers to the comprehension questions. "
-    'Return a JSON object with keys: "acceptable" (bool), '
-    '"feedback" (str), "summary" (str or null).'
-)
+_ANSWER_EVALUATION_PROMPT: str = (_PROMPTS_DIR / "answer_evaluation.txt").read_text()
 
-# TODO (task 4.4): replace with (_PROMPTS_DIR / "listening_summary.txt").read_text()
-_LISTENING_SUMMARY_PROMPT: str = (
-    "Write a one-paragraph summary of the listening task and how the user performed."
-)
+_LISTENING_SUMMARY_PROMPT: str = (_PROMPTS_DIR / "listening_summary.txt").read_text()
 
 # ---------------------------------------------------------------------------
 # Constants
