@@ -4,8 +4,10 @@ Given a list of pending comprehension questions (with their original 1-based num
 
 Definitions:
 - "correctly answered" — the learner addressed the question with reasonable accuracy, even if phrasing is imperfect
-- "wrongly answered" — the learner addressed the question but the answer is clearly incorrect, or the learner explicitly said "I don't know"
-- "skipped" — the learner did not address this question at all across any of their attempts
+- "wrongly answered" — the learner explicitly mentioned the question but gave an incorrect answer, said "I don't know", said the content was unclear, or otherwise acknowledged the question without answering it correctly
+- "skipped" — the learner made NO mention of this question whatsoever across all their attempts; it was completely ignored
+
+Key rule: if the learner references a question by number or topic in any way — even to say they don't understand it or don't know the answer — it is "wrongly answered", NOT "skipped". Only use "skipped" when there is zero mention of the question.
 
 For every wrongly answered question, provide the correct answer in 1–3 sentences drawn from the source text.
 

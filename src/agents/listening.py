@@ -376,12 +376,16 @@ def _build_task_card(
     Returns a multi-line string with the content link, vocabulary list,
     instructions, and numbered questions.
 
+    On retry cards (remaining_indices provided) the video/article link and
+    vocabulary list are omitted — the learner has already seen them and only
+    needs to see the pending questions.
+
     Args:
         t: The parsed tasks["listening"] dict.
         remaining_indices: 1-indexed question numbers to display. When
-            provided only those questions are shown and the instruction
-            text changes to "Please also address the remaining questions:".
-            When None, all questions are shown.
+            provided only those questions are shown, the URL and vocab are
+            hidden, and the instruction changes to "Please also address the
+            remaining questions:". When None, the full card is shown.
 
     Returns:
         Formatted task card string.
@@ -400,22 +404,26 @@ def _build_task_card(
         questions = []
 
     lines: list[str] = []
+    is_retry = remaining_indices is not None
 
-    if url:
-        verb = "Watch" if modality == "video" else "Read"
-        if title:
-            lines.append(f"{verb}: {title}")
-            lines.append(url)
-        else:
-            lines.append(f"{verb}: {url}")
-        lines.append("")
+    # On retry cards omit the video/article link and vocabulary list —
+    # the learner has already seen them and only needs the pending questions.
+    if not is_retry:
+        if url:
+            verb = "Watch" if modality == "video" else "Read"
+            if title:
+                lines.append(f"{verb}: {title}")
+                lines.append(url)
+            else:
+                lines.append(f"{verb}: {url}")
+            lines.append("")
 
-    if vocab:
-        lines.append("Vocabulary to focus on:")
-        lines.extend(f"  • {w}" for w in vocab)
-        lines.append("")
+        if vocab:
+            lines.append("Vocabulary to focus on:")
+            lines.extend(f"  • {w}" for w in vocab)
+            lines.append("")
 
-    if remaining_indices is not None:
+    if is_retry:
         lines.append("Please also address the remaining questions:")
     else:
         lines.append("Answer each question in 1–3 sentences using your own words.")
