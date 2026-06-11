@@ -15,6 +15,8 @@ class Settings(BaseSettings):
 
     ANTHROPIC_API_KEY: str
     DATABASE_URL: str = "sqlite:///./tutor.db"
+    # Empty default — app starts without it; content fallback chain handles absence.
+    GUARDIAN_API_KEY: str = ""
 
     # Model tier constants — not from env
     model_opus: str = "claude-opus-4-7"

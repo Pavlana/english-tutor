@@ -7,12 +7,16 @@ requires-python = ">=3.12"
 dependencies = [
     "anthropic>=0.97.0",
     "fastapi>=0.136.1",
+    "httpx>=0.28.1",
     "pydantic>=2.13.3",
     "pydantic-settings>=2.14.1",
     "python-dotenv>=1.2.2",
     "sqlmodel>=0.0.38",
     "tenacity>=9.1.4",
+    "trafilatura>=2.1.0",
     "uvicorn[standard]>=0.46.0",
+    "youtube-transcript-api>=1.2.4",
+    "yt-dlp>=2026.3.17",
 ]
 
 [tool.pytest.ini_options]

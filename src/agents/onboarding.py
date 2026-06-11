@@ -33,6 +33,7 @@ _LEVEL_QUESTION: str = (
 _RE_ASK: str = (
     "Sorry, I didn't catch that. Please reply with just: BEGINNER or EXPERIENCED"
 )
+_EMPTY_NUDGE: str = "I didn't catch your response — could you try again?"
 _FIRST_QUESTION: str = (
     "Great! Tell me a bit about yourself — what's your name, "
     "where are you from, and what brings you to learning English?"
@@ -365,4 +366,11 @@ async def run(
         )
 
     # turn_count >= 2: must be experienced path continuation.
+    if not message.strip():
+        return AgentResult(
+            message=_EMPTY_NUDGE,
+            agent="onboarding",
+            task_status="in_progress",
+            usage=None,
+        )
     return await _experienced_path(message, session, db_session)
