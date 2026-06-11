@@ -20,10 +20,10 @@ A multi-agent English tutor (FastAPI backend) that runs structured learning sess
 
 ## Current state (update as phases land)
 
-Phase 3 complete. Full onboarding agent: DB-backed state machine, novice
-path (A1 defaults, no LLM), experienced path (Sonnet conversation + Opus
-evaluator), first learning log generation, session closure. Structural evals
-in tests/evals/test_onboarding_evals.py. Phase 4 (listening agent) is next.
+Phase 4 complete. agents/base.py turn-loop, tools/content.py fallback chain
+(YouTube → Guardian → topic-only), real listening agent (vocab extraction,
+comprehension Q&A, summary). First vertical slice: onboarding → listening
+runs end-to-end via the REPL. Phase 5 (writing agent) is next.
 
 ## Architecture rules (enforce these)
 

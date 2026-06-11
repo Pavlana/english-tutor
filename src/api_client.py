@@ -60,6 +60,17 @@ async def call_anthropic(
     Raises:
         ValueError: If the response contains no text block.
     """
+    # Guard: the Anthropic API rejects messages with empty content with a
+    # cryptic error. Catch it here with a clear message before the call.
+    for i, msg in enumerate(messages):
+        content = msg.get("content", "")
+        if isinstance(content, str) and not content.strip():
+            raise ValueError(
+                f"Message at index {i} has empty content "
+                f"(role={msg.get('role')!r}). "
+                "Empty user messages must be filtered before calling call_anthropic."
+            )
+
     model, max_tokens, timeout = _TIER_CONFIG[tier]
 
     kwargs: dict[str, Any] = {

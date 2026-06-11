@@ -5,6 +5,7 @@ Given the comprehension questions, the source text, and the user's answers, eval
 Evaluation criteria:
 - "acceptable" is true if the answers show the learner understood the main points of the text, even if phrasing is imperfect
 - "acceptable" is false if answers are substantially wrong, missing, or show the learner did not engage with the text
+- "acceptable" is false if the response is completely unrelated to the questions (random words, nonsense, or a different topic entirely) — give feedback explaining what a relevant answer should include
 - "feedback" should be one constructive sentence: specific about what was good or what to improve
 - "summary" should be a one-paragraph plain-text summary of the listening task and the learner's performance — only when acceptable is true; null otherwise
 

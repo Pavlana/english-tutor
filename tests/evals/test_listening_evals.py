@@ -2,6 +2,10 @@
 
 All api_client and acquire_content calls are mocked — no real network or
 model calls are made. Tests verify DB state after each scenario.
+
+Call sequence per turn (turns 1+):
+  intent_classifier (haiku) → answer_evaluator (haiku) [on answer attempt]
+  intent_classifier (haiku) → help_responder (haiku/sonnet) [on help request]
 """
 
 import json
@@ -44,6 +48,10 @@ _FIXTURE_QUESTIONS: list[str] = [
 
 _VOCAB_RESPONSE: tuple = (json.dumps(_FIXTURE_WORDS), None)
 _QUESTIONS_RESPONSE: tuple = (json.dumps(_FIXTURE_QUESTIONS), None)
+
+_INTENT_ANSWER: tuple = (json.dumps({"intent": "answer"}), None)
+_INTENT_VOCAB: tuple = (json.dumps({"intent": "vocabulary"}), None)
+
 _EVAL_ACCEPTABLE: tuple = (
     json.dumps(
         {
@@ -59,6 +67,11 @@ _EVAL_UNACCEPTABLE: tuple = (
     None,
 )
 _SUMMARY_RESPONSE: tuple = ("A solid listening session on regulations.", None)
+_HELP_RESPONSE: tuple = (
+    "Stringent means very strict or demanding. "
+    "Give the questions another go when you're ready.",
+    None,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -109,10 +122,11 @@ async def test_complete_run_writes_five_vocabulary_items(db_session: object) -> 
     ):
         mock_content.return_value = _text_content()
         mock_ca.side_effect = [
-            _VOCAB_RESPONSE,
-            _QUESTIONS_RESPONSE,
-            _EVAL_ACCEPTABLE,
-            _SUMMARY_RESPONSE,
+            _VOCAB_RESPONSE,  # turn 0: vocab_extractor
+            _QUESTIONS_RESPONSE,  # turn 0: question_generator
+            _INTENT_ANSWER,  # turn 1: intent_classifier
+            _EVAL_ACCEPTABLE,  # turn 1: answer_evaluator
+            _SUMMARY_RESPONSE,  # turn 1: listening_summary
         ]
         await run("", ts, db_session)
         db_session.refresh(ts)
@@ -138,6 +152,7 @@ async def test_complete_run_sets_task_status_complete(db_session: object) -> Non
         mock_ca.side_effect = [
             _VOCAB_RESPONSE,
             _QUESTIONS_RESPONSE,
+            _INTENT_ANSWER,
             _EVAL_ACCEPTABLE,
             _SUMMARY_RESPONSE,
         ]
@@ -243,6 +258,7 @@ async def test_acceptable_evaluation_reaches_complete(db_session: object) -> Non
         mock_ca.side_effect = [
             _VOCAB_RESPONSE,
             _QUESTIONS_RESPONSE,
+            _INTENT_ANSWER,
             _EVAL_ACCEPTABLE,
             _SUMMARY_RESPONSE,
         ]
@@ -267,6 +283,7 @@ async def test_unacceptable_evaluation_returns_in_progress(db_session: object) -
         mock_ca.side_effect = [
             _VOCAB_RESPONSE,
             _QUESTIONS_RESPONSE,
+            _INTENT_ANSWER,
             _EVAL_UNACCEPTABLE,
         ]
         await run("", ts, db_session)
@@ -280,7 +297,7 @@ async def test_unacceptable_evaluation_returns_in_progress(db_session: object) -
 
 @pytest.mark.asyncio
 async def test_max_turns_forces_complete(db_session: object) -> None:
-    """At turn_count == 3 the agent forces complete regardless of the judge."""
+    """At turn_count == _MAX_ANSWER_ATTEMPTS the agent forces complete."""
     user_id = "user-max-turns"
     ts = _make_session(user_id, db_session)
 
@@ -292,17 +309,103 @@ async def test_max_turns_forces_complete(db_session: object) -> None:
         mock_ca.side_effect = [
             _VOCAB_RESPONSE,  # turn 0: vocab_extractor
             _QUESTIONS_RESPONSE,  # turn 0: question_generator
-            _EVAL_UNACCEPTABLE,  # turn 1: answer_evaluator — rejected
-            _EVAL_UNACCEPTABLE,  # turn 2: answer_evaluator — rejected
-            _EVAL_UNACCEPTABLE,  # turn 3: answer_evaluator — forced complete
-            _SUMMARY_RESPONSE,  # turn 3: listening_summary
+            _INTENT_ANSWER,  # turn 1: intent_classifier
+            _EVAL_UNACCEPTABLE,  # turn 1: answer_evaluator — rejected, count→2
+            _INTENT_ANSWER,  # turn 2: intent_classifier — force complete
+            _EVAL_UNACCEPTABLE,  # turn 2: answer_evaluator — force complete
+            _SUMMARY_RESPONSE,  # turn 2: listening_summary
         ]
         await run("", ts, db_session)  # turn 0 → in_progress
         db_session.refresh(ts)
         await run("Bad answer.", ts, db_session)  # turn 1 → in_progress
         db_session.refresh(ts)
-        await run("Bad answer.", ts, db_session)  # turn 2 → in_progress
+        result = await run("Bad answer.", ts, db_session)  # turn 2 → force complete
+
+    assert result.task_status == "complete"
+
+
+# ===========================================================================
+# GATE EVALS — empty message and help requests
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_empty_message_returns_in_progress_no_turn_increment(
+    db_session: object,
+) -> None:
+    """Empty message must return in_progress and not increment turn_count."""
+    user_id = "user-empty-msg"
+    ts = _make_session(user_id, db_session)
+
+    with (
+        patch(_ACQUIRE_CONTENT, new_callable=AsyncMock) as mock_content,
+        patch(_CALL_ANTHROPIC, new_callable=AsyncMock) as mock_ca,
+    ):
+        mock_content.return_value = _text_content()
+        mock_ca.side_effect = [_VOCAB_RESPONSE, _QUESTIONS_RESPONSE]
+        await run("", ts, db_session)  # turn 0 → task card shown, turn_count=1
         db_session.refresh(ts)
-        result = await run("Bad answer.", ts, db_session)  # turn 3 → force complete
+        assert ts.turn_count == 1
+
+        result = await run("", ts, db_session)  # empty → nudge, no increment
+
+    assert result.task_status == "in_progress"
+    db_session.refresh(ts)
+    assert ts.turn_count == 1  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_help_request_returns_in_progress_no_turn_increment(
+    db_session: object,
+) -> None:
+    """A vocabulary help request must return in_progress without incrementing turn."""
+    user_id = "user-help-vocab"
+    ts = _make_session(user_id, db_session)
+
+    with (
+        patch(_ACQUIRE_CONTENT, new_callable=AsyncMock) as mock_content,
+        patch(_CALL_ANTHROPIC, new_callable=AsyncMock) as mock_ca,
+    ):
+        mock_content.return_value = _text_content()
+        mock_ca.side_effect = [
+            _VOCAB_RESPONSE,  # turn 0: vocab_extractor
+            _QUESTIONS_RESPONSE,  # turn 0: question_generator
+            _INTENT_VOCAB,  # turn 1: intent_classifier → vocabulary
+            _HELP_RESPONSE,  # turn 1: help_responder
+        ]
+        await run("", ts, db_session)  # turn 0 → task card, turn_count=1
+        db_session.refresh(ts)
+        result = await run("what does stringent mean?", ts, db_session)
+
+    assert result.task_status == "in_progress"
+    db_session.refresh(ts)
+    assert ts.turn_count == 1  # help must not consume an attempt
+
+
+@pytest.mark.asyncio
+async def test_help_then_answer_reaches_complete(db_session: object) -> None:
+    """A help request followed by a valid answer must complete the task."""
+    user_id = "user-help-then-answer"
+    ts = _make_session(user_id, db_session)
+
+    with (
+        patch(_ACQUIRE_CONTENT, new_callable=AsyncMock) as mock_content,
+        patch(_CALL_ANTHROPIC, new_callable=AsyncMock) as mock_ca,
+    ):
+        mock_content.return_value = _text_content()
+        mock_ca.side_effect = [
+            _VOCAB_RESPONSE,  # turn 0: vocab_extractor
+            _QUESTIONS_RESPONSE,  # turn 0: question_generator
+            _INTENT_VOCAB,  # turn 1: intent_classifier → vocabulary
+            _HELP_RESPONSE,  # turn 1: help_responder
+            _INTENT_ANSWER,  # turn 1 (retry): intent_classifier → answer
+            _EVAL_ACCEPTABLE,  # turn 1 (retry): answer_evaluator
+            _SUMMARY_RESPONSE,  # turn 1 (retry): listening_summary
+        ]
+        await run("", ts, db_session)
+        db_session.refresh(ts)
+        await run("what does stringent mean?", ts, db_session)  # help, no increment
+        db_session.refresh(ts)
+        result = await run("Small businesses were most affected.", ts, db_session)
 
     assert result.task_status == "complete"

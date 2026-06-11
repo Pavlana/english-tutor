@@ -33,12 +33,14 @@ class ContentResult:
             or empty string for topic-only.
         url: Link to the source; ``None`` for topic-only.
         modality: One of ``"video"``, ``"article"``, ``"topic-only"``.
+        title: Human-readable title of the content; ``None`` if unavailable.
     """
 
     source: str
     text: str
     url: str | None
     modality: str
+    title: str | None = None
 
 
 def _try_youtube(topic: str) -> ContentResult | None:
@@ -72,6 +74,7 @@ def _try_youtube(topic: str) -> ContentResult | None:
             return None
 
         video_url = f"https://www.youtube.com/watch?v={video_id}"
+        video_title: str | None = entry.get("title")
     except Exception:  # noqa: BLE001 — yt-dlp raises many undocumented exceptions
         return None
 
@@ -87,6 +90,7 @@ def _try_youtube(topic: str) -> ContentResult | None:
         text=text,
         url=video_url,
         modality="video",
+        title=video_title,
     )
 
 
@@ -128,6 +132,7 @@ def _try_guardian(topic: str) -> ContentResult | None:
 
     article = results[0]
     article_url: str = article.get("webUrl", "")
+    article_title: str | None = article.get("webTitle") or None
     html_body: str = article.get("fields", {}).get("body", "")
 
     if not html_body:
@@ -142,6 +147,7 @@ def _try_guardian(topic: str) -> ContentResult | None:
         text=text,
         url=article_url or None,
         modality="article",
+        title=article_title,
     )
 
 
