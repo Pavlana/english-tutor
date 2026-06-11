@@ -51,11 +51,13 @@ _QUESTIONS_RESPONSE: tuple = (json.dumps(_FIXTURE_QUESTIONS), None)
 
 _INTENT_ANSWER: tuple = (json.dumps({"intent": "answer"}), None)
 _INTENT_VOCAB: tuple = (json.dumps({"intent": "vocabulary"}), None)
+_INTENT_QUIT: tuple = (json.dumps({"intent": "session_quit"}), None)
 
 _EVAL_ACCEPTABLE: tuple = (
     json.dumps(
         {
             "acceptable": True,
+            "questions_addressed": 3,
             "feedback": "Good effort.",
             "summary": "Solid comprehension of the regulations topic.",
         }
@@ -63,7 +65,38 @@ _EVAL_ACCEPTABLE: tuple = (
     None,
 )
 _EVAL_UNACCEPTABLE: tuple = (
-    json.dumps({"acceptable": False, "feedback": "Try again.", "summary": None}),
+    json.dumps(
+        {
+            "acceptable": False,
+            "questions_addressed": 1,
+            "feedback": "Try again.",
+            "summary": None,
+        }
+    ),
+    None,
+)
+# Quit with enough questions addressed (≥ _MIN_QUESTIONS_TO_QUIT).
+_EVAL_QUIT_ENOUGH: tuple = (
+    json.dumps(
+        {
+            "acceptable": False,
+            "questions_addressed": 3,
+            "feedback": "You addressed 3 questions — good effort on those.",
+            "summary": None,
+        }
+    ),
+    None,
+)
+# Quit with too few questions addressed (< _MIN_QUESTIONS_TO_QUIT).
+_EVAL_QUIT_TOO_FEW: tuple = (
+    json.dumps(
+        {
+            "acceptable": False,
+            "questions_addressed": 2,
+            "feedback": "You've only addressed 2 questions so far.",
+            "summary": None,
+        }
+    ),
     None,
 )
 _SUMMARY_RESPONSE: tuple = ("A solid listening session on regulations.", None)
@@ -409,3 +442,61 @@ async def test_help_then_answer_reaches_complete(db_session: object) -> None:
         result = await run("Small businesses were most affected.", ts, db_session)
 
     assert result.task_status == "complete"
+
+
+# ===========================================================================
+# GATE EVALS — session quit
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_quit_with_enough_questions_completes(db_session: object) -> None:
+    """Quit with questions_addressed >= _MIN_QUESTIONS_TO_QUIT must complete."""
+    user_id = "user-quit-enough"
+    ts = _make_session(user_id, db_session)
+
+    with (
+        patch(_ACQUIRE_CONTENT, new_callable=AsyncMock) as mock_content,
+        patch(_CALL_ANTHROPIC, new_callable=AsyncMock) as mock_ca,
+    ):
+        mock_content.return_value = _text_content()
+        mock_ca.side_effect = [
+            _VOCAB_RESPONSE,  # turn 0: vocab_extractor
+            _QUESTIONS_RESPONSE,  # turn 0: question_generator
+            _INTENT_QUIT,  # turn 1: intent_classifier → session_quit
+            _EVAL_QUIT_ENOUGH,  # turn 1: answer_evaluator (3 addressed)
+            _SUMMARY_RESPONSE,  # turn 1: listening_summary
+        ]
+        await run("", ts, db_session)
+        db_session.refresh(ts)
+        result = await run("I want to stop here.", ts, db_session)
+
+    assert result.task_status == "complete"
+
+
+@pytest.mark.asyncio
+async def test_quit_with_too_few_questions_stays_in_progress(
+    db_session: object,
+) -> None:
+    """Quit with questions_addressed < _MIN_QUESTIONS_TO_QUIT must stay in_progress."""
+    user_id = "user-quit-too-few"
+    ts = _make_session(user_id, db_session)
+
+    with (
+        patch(_ACQUIRE_CONTENT, new_callable=AsyncMock) as mock_content,
+        patch(_CALL_ANTHROPIC, new_callable=AsyncMock) as mock_ca,
+    ):
+        mock_content.return_value = _text_content()
+        mock_ca.side_effect = [
+            _VOCAB_RESPONSE,  # turn 0: vocab_extractor
+            _QUESTIONS_RESPONSE,  # turn 0: question_generator
+            _INTENT_QUIT,  # turn 1: intent_classifier → session_quit
+            _EVAL_QUIT_TOO_FEW,  # turn 1: answer_evaluator (2 addressed)
+        ]
+        await run("", ts, db_session)
+        db_session.refresh(ts)
+        result = await run("I give up.", ts, db_session)
+
+    assert result.task_status == "in_progress"
+    db_session.refresh(ts)
+    assert ts.turn_count == 1  # quit attempt must not consume an answer turn

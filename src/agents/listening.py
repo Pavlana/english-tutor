@@ -83,6 +83,19 @@ _EMPTY_NUDGE: str = (
 # Appended to evaluator feedback when the user has one retry remaining.
 _RETRY_NUDGE: str = "Try once more if you'd like:"
 
+# Minimum questions the user must have addressed to be allowed to quit early.
+_MIN_QUESTIONS_TO_QUIT: int = 3
+
+# Shown when the user quits early but hasn't addressed enough questions yet.
+# Uses .format(answered=N) at call site.
+_QUIT_TOO_FEW_TEMPLATE: str = (
+    "You've addressed {answered} question(s) so far — please answer at least "
+    f"{_MIN_QUESTIONS_TO_QUIT} before finishing early. Keep going:"
+)
+
+# Message returned to the user when an early quit is accepted.
+_QUIT_ACCEPTED: str = "Got it — wrapping up early. Good effort on those questions."
+
 
 # ---------------------------------------------------------------------------
 # Private helpers — JSON extraction
@@ -461,6 +474,8 @@ async def run(
 
     Turns 1+: gate logic —
       - Empty message: re-display task card with a nudge; no turn increment.
+      - Quit intent: evaluate to count questions addressed; complete if ≥
+        _MIN_QUESTIONS_TO_QUIT, otherwise prompt to continue; no increment.
       - Help request (vocab/clarification/confusion/hint): call help responder,
         re-display task card; no turn increment.
       - Answer attempt: evaluate with Haiku; reject up to _MAX_ANSWER_ATTEMPTS
@@ -552,7 +567,32 @@ async def run(
         session.session_id,
     )
 
-    # Gate 3: help request — respond and re-display task card; no turn increment.
+    # Gate 3: quit intent — accept early exit only if enough questions answered.
+    if intent == "session_quit":
+        eval_result, _ = await _evaluate_response(
+            message,
+            t.get("questions", ""),
+            t.get("content_text", ""),
+            session.session_id,
+        )
+        answered = eval_result.get("questions_addressed", 0)
+        if answered >= _MIN_QUESTIONS_TO_QUIT:
+            quit_eval = {
+                "acceptable": True,
+                "feedback": _QUIT_ACCEPTED,
+                "summary": None,
+            }
+            return await _complete_task(quit_eval, session, db_session)
+        task_card = _build_task_card(t)
+        nudge = _QUIT_TOO_FEW_TEMPLATE.format(answered=answered)
+        return AgentResult(
+            message=f"{nudge}\n\n{task_card}",
+            agent="listening",
+            task_status="in_progress",
+            usage=None,
+        )
+
+    # Gate 4: help request — respond and re-display task card; no turn increment.
     if intent != "answer":
         help_text = await _handle_help(
             message,
@@ -570,7 +610,7 @@ async def run(
             usage=None,
         )
 
-    # Gate 4: answer attempt — evaluate, enforce 2-attempt cap.
+    # Gate 5: answer attempt — evaluate, enforce 2-attempt cap.
     eval_result, _ = await _evaluate_response(
         message,
         t.get("questions", ""),
