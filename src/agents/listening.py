@@ -187,7 +187,8 @@ async def _generate_questions(
     Returns:
         Tuple of (questions_json_str, usage).
     """
-    user_content = f"Text:\n{text}\n\nVocabulary: {', '.join(vocab_list)}"
+    vocab_part = f"\n\nVocabulary: {', '.join(vocab_list)}" if vocab_list else ""
+    user_content = f"Text:\n{text}{vocab_part}"
     raw, usage = await call_anthropic(
         messages=[{"role": "user", "content": user_content}],
         tier="sonnet",
@@ -405,11 +406,8 @@ def _build_task_card(t: dict[str, Any]) -> str:
     lines.append("Answer each question in 1–3 sentences using your own words.")
     lines.append("")
 
-    if questions:
-        for i, q in enumerate(questions, 1):
-            lines.append(f"{i}. {q}")
-    else:
-        lines.append(t.get("questions", ""))
+    for i, q in enumerate(questions, 1):
+        lines.append(f"{i}. {q}")
 
     return "\n".join(lines)
 

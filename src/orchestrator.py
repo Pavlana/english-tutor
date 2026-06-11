@@ -21,6 +21,9 @@ from src.models import AgentResult
 from src.topic_generator import generate_topic
 
 _TASK_ORDER: list[str] = ["listening", "writing", "speaking", "grammar"]
+
+# Shown to the user at the start of every new learning session (Branch 2).
+_NEW_SESSION_GREETING: str = "Let's start a new session!"
 _RESUMABLE_STATUSES: frozenset[str] = frozenset({"not_started", "in_progress"})
 
 # Keyed by task name → agent module. `.run` is looked up at dispatch time so
@@ -96,7 +99,9 @@ async def handle(
         # a later phase; pass an empty dict for now.
         topic = await generate_topic({}, learning_log)
         new_session: TutorSession = create_session(user_id, topic, db_session)
-        return await listening.run(message, new_session, db_session)
+        result = await listening.run(message, new_session, db_session)
+        result.message = f"{_NEW_SESSION_GREETING}\n\n{result.message}"
+        return result
 
     # ── Branch 3: first ever visit — create onboarding session, run agent ────
     onboarding_session: TutorSession = create_session(user_id, "onboarding", db_session)
