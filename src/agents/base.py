@@ -1,4 +1,4 @@
-"""Shared turn-loop scaffolding reused by every task agent.
+"""Shared utilities and turn-loop scaffolding reused by every task agent.
 
 All task agents (listening, writing, speaking, grammar) delegate their
 generate → user turns → evaluate → complete cycle to run_turn_loop.
@@ -6,6 +6,7 @@ The turn counter lives in session.turn_count in the DB; no in-memory
 turn variables are used.
 """
 
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -17,6 +18,24 @@ from src.models import AgentResult
 
 # Maximum number of user evaluation attempts before the loop forces completion.
 _MAX_TURNS: int = 3
+
+
+def extract_json(raw: str) -> str:
+    """Extract the first JSON array or object from a model response string.
+
+    Models sometimes prepend prose before the JSON payload. This strips
+    everything outside the outermost ``[…]`` or ``{…}`` so ``json.loads``
+    can parse it cleanly. Available to all agents via ``from src.agents.base``.
+
+    Args:
+        raw: Raw model output that should contain a JSON array or object.
+
+    Returns:
+        The extracted JSON substring, or the original string if no bracket
+        pair is found (letting the caller's json.loads raise naturally).
+    """
+    match = re.search(r"(\[.*\]|\{.*\})", raw, re.DOTALL)
+    return match.group(0) if match else raw
 
 
 async def run_turn_loop(
