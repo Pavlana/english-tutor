@@ -59,6 +59,11 @@ _TOPIC_ONLY_MESSAGE: str = (
     "We'll work directly from the topic — moving on to writing."
 )
 
+# Shown in the task card when question JSON failed to parse.
+_QUESTIONS_UNAVAILABLE: str = (
+    "Questions could not be loaded — type 'help' or try refreshing the session."
+)
+
 # Fallback when the evaluator returns unparseable JSON.
 _EVAL_FALLBACK: dict[str, Any] = {
     "acceptable": True,
@@ -406,8 +411,11 @@ def _build_task_card(t: dict[str, Any]) -> str:
     lines.append("Answer each question in 1–3 sentences using your own words.")
     lines.append("")
 
-    for i, q in enumerate(questions, 1):
-        lines.append(f"{i}. {q}")
+    if questions:
+        for i, q in enumerate(questions, 1):
+            lines.append(f"{i}. {q}")
+    else:
+        lines.append(_QUESTIONS_UNAVAILABLE)
 
     return "\n".join(lines)
 

@@ -5,11 +5,11 @@ Given a text passage and a list of 5 vocabulary words extracted from it, generat
 Question criteria:
 - Every question must be answerable from the text alone — not from general knowledge
 - Questions must require genuine reading comprehension, not just scanning for a word
-- At least one question must use a vocabulary word from the provided list naturally
+- If vocabulary words are provided, at least one question must use one naturally; if no vocabulary is provided, generate questions from the text alone
 - Mix question types: factual recall, inference, author intent, vocabulary in context
 - Phrase questions clearly, at A1-C2 reading level
 
-Return ONLY a JSON array of question strings. No prose, no explanation, no markdown.
+Always return a JSON array regardless of what information is present or absent. Never ask for missing data. Never explain what you are doing.
 
 Example input:
 Text: "The government's stringent austerity measures have disproportionately affected low-income households, prompting widespread calls for a more equitable distribution of fiscal burdens."
