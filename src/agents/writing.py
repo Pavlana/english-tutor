@@ -26,6 +26,7 @@ from src.db.repo import (
     get_vocabulary_for_review,
     set_task_status,
     update_task,
+    update_vocab_signals,
 )
 from src.db.schemas import TutorSession
 from src.models import AgentResult
@@ -269,6 +270,9 @@ async def _complete_task(
         },
         db_session,
     )
+    # Also persist signals to the VocabularyItem table so the Feedback agent
+    # can query usage signals directly from the vocabulary index.
+    update_vocab_signals(session.session_id, signals, db_session)
     set_task_status(session.session_id, "writing", "complete", db_session)
 
     # Reset turn_count so the next task's loop starts fresh.

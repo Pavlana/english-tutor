@@ -428,6 +428,56 @@ def upsert_vocabulary(
     return new_item
 
 
+def update_vocab_signals(
+    session_id: str,
+    signals: dict[str, str],
+    db_session: DBSession,
+) -> None:
+    """Write vocab-usage signals back to VocabularyItem rows for a session.
+
+    For each word in signals, looks up the VocabularyItem whose
+    last_seen_session matches session_id and whose word matches (case-insensitive).
+    Updates its usage_signal field. Silently skips words that are not found.
+
+    Args:
+        session_id: The session whose vocabulary to update.
+        signals: Dict mapping word → one of "used_correctly", "not_used",
+            "used_incorrectly".
+        db_session: Active database session.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    for word, signal in signals.items():
+        stmt = select(VocabularyItem).where(
+            VocabularyItem.last_seen_session == session_id,
+            VocabularyItem.word == word,
+        )
+        item = db_session.exec(stmt).first()
+
+        if item is None:
+            # Try case-insensitive fallback.
+            stmt_ci = select(VocabularyItem).where(
+                VocabularyItem.last_seen_session == session_id,
+                col(VocabularyItem.word) == word.lower(),
+            )
+            item = db_session.exec(stmt_ci).first()
+
+        if item is None:
+            logger.warning(
+                "update_vocab_signals: word %r not found for session %r — skipping.",
+                word,
+                session_id,
+            )
+            continue
+
+        item.usage_signal = signal
+        db_session.add(item)
+
+    db_session.commit()
+
+
 def get_vocabulary_for_review(user_id: str, session: DBSession) -> list[VocabularyItem]:
     """Return all VocabularyItems for user_id with status "new" or "learning".
 
