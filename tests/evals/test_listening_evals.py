@@ -57,7 +57,7 @@ _EVAL_ACCEPTABLE: tuple = (
     json.dumps(
         {
             "acceptable": True,
-            "questions_addressed": 3,
+            "questions_addressed": [1, 2, 3],
             "feedback": "Good effort.",
             "summary": "Solid comprehension of the regulations topic.",
         }
@@ -68,7 +68,7 @@ _EVAL_UNACCEPTABLE: tuple = (
     json.dumps(
         {
             "acceptable": False,
-            "questions_addressed": 1,
+            "questions_addressed": [1],
             "feedback": "Try again.",
             "summary": None,
         }
@@ -80,7 +80,7 @@ _EVAL_QUIT_ENOUGH: tuple = (
     json.dumps(
         {
             "acceptable": False,
-            "questions_addressed": 3,
+            "questions_addressed": [1, 2, 3],
             "feedback": "You addressed 3 questions — good effort on those.",
             "summary": None,
         }
@@ -92,7 +92,7 @@ _EVAL_QUIT_TOO_FEW: tuple = (
     json.dumps(
         {
             "acceptable": False,
-            "questions_addressed": 2,
+            "questions_addressed": [1, 2],
             "feedback": "You've only addressed 2 questions so far.",
             "summary": None,
         }

@@ -366,7 +366,10 @@ async def _generate_summary(
 # ---------------------------------------------------------------------------
 
 
-def _build_task_card(t: dict[str, Any]) -> str:
+def _build_task_card(
+    t: dict[str, Any],
+    remaining_indices: list[int] | None = None,
+) -> str:
     """Build the formatted task card shown to the user.
 
     Reads url, title, modality, vocab, and questions from the tasks dict.
@@ -375,6 +378,10 @@ def _build_task_card(t: dict[str, Any]) -> str:
 
     Args:
         t: The parsed tasks["listening"] dict.
+        remaining_indices: 1-indexed question numbers to display. When
+            provided only those questions are shown and the instruction
+            text changes to "Please also address the remaining questions:".
+            When None, all questions are shown.
 
     Returns:
         Formatted task card string.
@@ -408,11 +415,19 @@ def _build_task_card(t: dict[str, Any]) -> str:
         lines.extend(f"  • {w}" for w in vocab)
         lines.append("")
 
-    lines.append("Answer each question in 1–3 sentences using your own words.")
+    if remaining_indices is not None:
+        lines.append("Please also address the remaining questions:")
+    else:
+        lines.append("Answer each question in 1–3 sentences using your own words.")
     lines.append("")
 
-    if questions:
-        for i, q in enumerate(questions, 1):
+    visible = (
+        [(i, q) for i, q in enumerate(questions, 1) if i in remaining_indices]
+        if remaining_indices is not None
+        else list(enumerate(questions, 1))
+    )
+    if visible:
+        for i, q in visible:
             lines.append(f"{i}. {q}")
     else:
         lines.append(_QUESTIONS_UNAVAILABLE)
@@ -581,8 +596,8 @@ async def run(
             t.get("content_text", ""),
             session.session_id,
         )
-        answered = eval_result.get("questions_addressed", 0)
-        if answered >= _MIN_QUESTIONS_TO_QUIT:
+        addressed: list[int] = eval_result.get("questions_addressed", [])
+        if len(addressed) >= _MIN_QUESTIONS_TO_QUIT:
             quit_eval = {
                 "acceptable": True,
                 "feedback": _QUIT_ACCEPTED,
@@ -590,7 +605,7 @@ async def run(
             }
             return await _complete_task(quit_eval, session, db_session)
         task_card = _build_task_card(t)
-        nudge = _QUIT_TOO_FEW_TEMPLATE.format(answered=answered)
+        nudge = _QUIT_TOO_FEW_TEMPLATE.format(answered=len(addressed))
         return AgentResult(
             message=f"{nudge}\n\n{task_card}",
             agent="listening",
@@ -628,13 +643,20 @@ async def run(
     if eval_result.get("acceptable") or force_complete:
         return await _complete_task(eval_result, session, db_session)
 
-    # Rejected — offer one retry; increment turn counter.
+    # Rejected — show only the unanswered questions; increment turn counter.
+    addressed: list[int] = eval_result.get("questions_addressed", [])
+    try:
+        all_questions: list[str] = json.loads(t.get("questions", "[]"))
+    except (json.JSONDecodeError, ValueError):
+        all_questions = []
+    remaining = [i for i in range(1, len(all_questions) + 1) if i not in addressed]
+
     session.turn_count += 1
     db_session.add(session)
     db_session.commit()
 
     feedback = eval_result.get("feedback", "").strip()
-    task_card = _build_task_card(t)
+    task_card = _build_task_card(t, remaining_indices=remaining if remaining else None)
     return AgentResult(
         message=f"{feedback}\n\n{_RETRY_NUDGE}\n\n{task_card}",
         agent="listening",
