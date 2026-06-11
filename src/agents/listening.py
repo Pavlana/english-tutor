@@ -433,12 +433,13 @@ async def _complete_task(
         t.get("content_text", ""),
         session.session_id,
     )
+    # Summary is stored in DB for the learning log but not shown to the user.
+    # The user sees only the evaluator's short feedback sentence.
     update_task(session.session_id, "listening", {"summary": summary_text}, db_session)
 
-    feedback = eval_result.get("feedback", "").strip()
-    message = f"{feedback}\n\n{summary_text}" if feedback else summary_text
+    feedback = eval_result.get("feedback", "Good effort — moving on.").strip()
     return AgentResult(
-        message=message,
+        message=feedback,
         agent="listening",
         task_status="complete",
         usage=summary_usage,
