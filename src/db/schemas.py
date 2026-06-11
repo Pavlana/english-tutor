@@ -112,6 +112,8 @@ class VocabularyItem(SQLModel, table=True):
     times_used_correctly: int = Field(default=0)
     last_seen_session: str | None = None
     topic_tags: str = Field(default="[]")  # JSON list
+    # One of: "used_correctly", "not_used", "used_incorrectly"
+    usage_signal: str | None = Field(default=None)
 
 
 class LearningLog(SQLModel, table=True):

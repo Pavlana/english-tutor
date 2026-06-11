@@ -3,6 +3,7 @@
 from collections.abc import Generator
 from contextlib import contextmanager
 
+from sqlalchemy import text
 from sqlmodel import Session, SQLModel, create_engine
 
 from src.config import settings
@@ -22,9 +23,28 @@ from src.db.schemas import (  # noqa: F401
 engine = create_engine(settings.DATABASE_URL)
 
 
+def _run_migrations() -> None:
+    """Apply additive schema changes that create_all() cannot handle.
+
+    SQLModel's create_all() creates missing tables but does not ALTER existing
+    ones. Each migration here is idempotent — it checks whether a column exists
+    before issuing ALTER TABLE, so it is safe to run on every startup.
+    """
+    with engine.connect() as conn:
+        # Phase 5: add usage_signal to vocabularyitem.
+        result = conn.execute(text("PRAGMA table_info(vocabularyitem)"))
+        col_names = [row[1] for row in result]
+        if "usage_signal" not in col_names:
+            conn.execute(
+                text("ALTER TABLE vocabularyitem ADD COLUMN usage_signal TEXT")
+            )
+            conn.commit()
+
+
 def create_db_and_tables() -> None:
-    """Create all SQLModel tables that have not yet been created."""
+    """Create all SQLModel tables that have not yet been created, then migrate."""
     SQLModel.metadata.create_all(engine)
+    _run_migrations()
 
 
 @contextmanager

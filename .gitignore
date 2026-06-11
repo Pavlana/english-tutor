@@ -13,4 +13,7 @@ wheels/
 
 .DS_Store
 
+# Runtime SQLite database — never commit
+*.db
+
 docs/

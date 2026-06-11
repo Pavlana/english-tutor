@@ -20,10 +20,10 @@ A multi-agent English tutor (FastAPI backend) that runs structured learning sess
 
 ## Current state (update as phases land)
 
-Phase 4 complete. agents/base.py turn-loop, tools/content.py fallback chain
-(YouTube → Guardian → topic-only), real listening agent (vocab extraction,
-comprehension Q&A, summary). First vertical slice: onboarding → listening
-runs end-to-end via the REPL. Phase 5 (writing agent) is next.
+Phase 5 complete. tools/dictionary.py (dictionaryapi.dev), writing agent
+(task generation, multi-turn eval, vocab-usage assessment + signals). Listening
+→ Writing runs end-to-end via the REPL with vocab flowing between agents.
+Phase 6 (speaking + grammar agents) is next.
 
 ## Architecture rules (enforce these)
 
