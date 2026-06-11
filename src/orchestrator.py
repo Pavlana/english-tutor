@@ -90,7 +90,28 @@ async def handle(
         if next_task_name is None:
             return await feedback.run(message, open_ts, db_session)
 
-        return await _TASK_MODULES[next_task_name].run(message, open_ts, db_session)
+        result = await _TASK_MODULES[next_task_name].run(message, open_ts, db_session)
+
+        # Auto-advance: if the task just completed, immediately start the next
+        # one so the user sees the transition in a single response instead of
+        # having to send an empty "okay" to trigger the next task's turn 0.
+        # Guard: only chain when the DB actually moved forward (real agent
+        # updated the status). Mocked agents in tests don't touch the DB, so
+        # next_next == next_task_name there — no chain, no infinite loop.
+        if result.task_status == "complete":
+            db_session.refresh(open_ts)
+            tasks_after = json.loads(open_ts.tasks)
+            next_next = _next_task(tasks_after)
+            if next_next is not None and next_next != next_task_name:
+                next_result = await _TASK_MODULES[next_next].run(
+                    "", open_ts, db_session
+                )
+                next_result.message = (
+                    f"{result.message}\n\n---\n\n{next_result.message}"
+                )
+                return next_result
+
+        return result
 
     # ── Branch 2: no open session — check for a learning log ────────────────
     learning_log = get_latest_learning_log(user_id, db_session)
