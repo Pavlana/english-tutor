@@ -15,13 +15,12 @@ tasks["listening"] so every turn is stateless between HTTP requests.
 """
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
 from sqlmodel import Session as DBSession
 
-from src.agents.base import run_turn_loop
+from src.agents.base import extract_json, run_turn_loop
 from src.api_client import call_anthropic
 from src.db.repo import set_task_status, update_task, upsert_vocabulary
 from src.db.schemas import TutorSession
@@ -100,28 +99,6 @@ _QUIT_ACCEPTED: str = "Got it — wrapping up early. Good effort on those questi
 
 
 # ---------------------------------------------------------------------------
-# Private helpers — JSON extraction
-# ---------------------------------------------------------------------------
-
-
-def _extract_json(raw: str) -> str:
-    """Extract the first JSON array or object from a string.
-
-    Models sometimes prepend prose before the JSON. This strips everything
-    outside the outermost ``[…]`` or ``{…}`` so ``json.loads`` can parse it.
-
-    Args:
-        raw: Raw model output that should contain JSON.
-
-    Returns:
-        The extracted JSON substring, or the original string if no bracket
-        pair is found (letting the caller's json.loads raise naturally).
-    """
-    match = re.search(r"(\[.*\]|\{.*\})", raw, re.DOTALL)
-    return match.group(0) if match else raw
-
-
-# ---------------------------------------------------------------------------
 # Private helpers — LLM calls
 # ---------------------------------------------------------------------------
 
@@ -153,7 +130,7 @@ async def _extract_vocabulary(
         session_id=session.session_id,
     )
     try:
-        words: list[str] = json.loads(_extract_json(raw))
+        words: list[str] = json.loads(extract_json(raw))
         if not isinstance(words, list):
             words = []
     except (json.JSONDecodeError, ValueError):
@@ -198,7 +175,7 @@ async def _generate_questions(
         system=_COMPREHENSION_QUESTIONS_PROMPT,
         session_id=session_id,
     )
-    return _extract_json(raw), usage
+    return extract_json(raw), usage
 
 
 async def _classify_intent(
@@ -235,7 +212,7 @@ async def _classify_intent(
         session_id=session_id,
     )
     try:
-        data: dict[str, Any] = json.loads(_extract_json(raw))
+        data: dict[str, Any] = json.loads(extract_json(raw))
         intent: str = data.get("intent", "answer")
     except (json.JSONDecodeError, ValueError):
         intent = "answer"
@@ -327,7 +304,7 @@ async def _evaluate_response(
         session_id=session_id,
     )
     try:
-        result: dict[str, Any] = json.loads(_extract_json(raw))
+        result: dict[str, Any] = json.loads(extract_json(raw))
     except (json.JSONDecodeError, ValueError):
         result = dict(_EVAL_FALLBACK)
     return result, usage
