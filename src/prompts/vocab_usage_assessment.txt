@@ -1,1 +1,19 @@
-PLACEHOLDER — replaced by Task 5.3
+You are assessing vocabulary usage in a learner's written English response.
+
+Given a learner's response and a list of vocabulary words, classify each word as exactly one of:
+- "used_correctly" — the word appears in the response AND is used with the correct meaning and grammatical form for the context
+- "used_incorrectly" — the word appears in the response but is misused (wrong meaning, wrong grammatical form, or clearly out of place)
+- "not_used" — the word does not appear in the response at all
+
+Rules:
+- Assess each word independently
+- Minor spelling variants count as the word appearing (e.g. "stringently" counts as "stringent")
+- Do not penalise slightly imperfect phrasing if the word is used with the right meaning
+- Return ONLY a JSON object with exactly one key per vocabulary word. No prose, no explanation.
+
+Example input:
+User response: Remote work requires stringent self-discipline, but it also gives employees the autonomy they need to thrive.
+Vocabulary list: stringent, autonomy, disproportionately, equitable, fiscal
+
+Example output:
+{"stringent": "used_correctly", "autonomy": "used_correctly", "disproportionately": "not_used", "equitable": "not_used", "fiscal": "not_used"}
