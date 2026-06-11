@@ -134,10 +134,10 @@ async def test_task_status_never_in_progress_on_exit(db_session) -> None:
 
     with patch(_CALL_ANTHROPIC, new_callable=AsyncMock) as mock:
         mock.side_effect = [
-            (_GENERATION_TEXT, None),               # turn 0: generate
-            (json.dumps(_EVAL_ACCEPTABLE), None),   # turn 1: evaluate
+            (_GENERATION_TEXT, None),  # turn 0: generate
+            (json.dumps(_EVAL_ACCEPTABLE), None),  # turn 1: evaluate
             (json.dumps(_SIGNALS_ALL_USED), None),  # turn 1: vocab assess
-            (_SUMMARY_TEXT, None),                  # turn 1: summary
+            (_SUMMARY_TEXT, None),  # turn 1: summary
         ]
         await writing.run("", ts, db_session)
         db_session.refresh(ts)
@@ -174,9 +174,9 @@ async def test_vocab_signals_persisted(db_session) -> None:
     signals: dict = json.loads(t["vocab_signals"])
 
     assert signals, "vocab_signals must be non-empty"
-    assert all(
-        v in _VALID_SIGNALS for v in signals.values()
-    ), f"All signal values must be in {_VALID_SIGNALS}, got: {set(signals.values())}"
+    assert all(v in _VALID_SIGNALS for v in signals.values()), (
+        f"All signal values must be in {_VALID_SIGNALS}, got: {set(signals.values())}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -251,20 +251,20 @@ async def test_max_turns_forces_complete(db_session) -> None:
 
     with patch(_CALL_ANTHROPIC, new_callable=AsyncMock) as mock:
         mock.side_effect = [
-            (_GENERATION_TEXT, None),                 # turn 0: generate
-            (json.dumps(_EVAL_UNACCEPTABLE), None),   # turn 1: eval (fail)
-            (json.dumps(_EVAL_UNACCEPTABLE), None),   # turn 2: eval (fail)
-            (json.dumps(_EVAL_UNACCEPTABLE), None),   # turn 3: eval (force complete)
-            (json.dumps(_SIGNALS_NONE_USED), None),   # turn 3: vocab assess
-            (_SUMMARY_TEXT, None),                    # turn 3: summary
+            (_GENERATION_TEXT, None),  # turn 0: generate
+            (json.dumps(_EVAL_UNACCEPTABLE), None),  # turn 1: eval (fail)
+            (json.dumps(_EVAL_UNACCEPTABLE), None),  # turn 2: eval (fail)
+            (json.dumps(_EVAL_UNACCEPTABLE), None),  # turn 3: eval (force complete)
+            (json.dumps(_SIGNALS_NONE_USED), None),  # turn 3: vocab assess
+            (_SUMMARY_TEXT, None),  # turn 3: summary
         ]
-        await writing.run("", ts, db_session)           # turn 0
+        await writing.run("", ts, db_session)  # turn 0
         db_session.refresh(ts)
         await writing.run("Short answer.", ts, db_session)  # turn 1
         db_session.refresh(ts)
-        await writing.run("Another try.", ts, db_session)   # turn 2
+        await writing.run("Another try.", ts, db_session)  # turn 2
         db_session.refresh(ts)
-        await writing.run("One more.", ts, db_session)      # turn 3
+        await writing.run("One more.", ts, db_session)  # turn 3
 
     assert _writing_task(ts, db_session)["status"] == "complete", (
         "Task must be 'complete' after three unacceptable evaluation turns"

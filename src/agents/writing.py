@@ -41,17 +41,13 @@ _WRITING_TASK_GENERATION_PROMPT: str = (
     _PROMPTS_DIR / "writing_task_generation.txt"
 ).read_text()
 
-_WRITING_EVALUATION_PROMPT: str = (
-    _PROMPTS_DIR / "writing_evaluation.txt"
-).read_text()
+_WRITING_EVALUATION_PROMPT: str = (_PROMPTS_DIR / "writing_evaluation.txt").read_text()
 
 _VOCAB_USAGE_ASSESSMENT_PROMPT: str = (
     _PROMPTS_DIR / "vocab_usage_assessment.txt"
 ).read_text()
 
-_WRITING_SUMMARY_PROMPT: str = (
-    _PROMPTS_DIR / "writing_summary.txt"
-).read_text()
+_WRITING_SUMMARY_PROMPT: str = (_PROMPTS_DIR / "writing_summary.txt").read_text()
 
 # ---------------------------------------------------------------------------
 # Constants
