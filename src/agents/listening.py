@@ -64,29 +64,26 @@ _QUESTIONS_UNAVAILABLE: str = (
     "Questions could not be loaded — type 'help' or try refreshing the session."
 )
 
-# Fallback when the evaluator returns unparseable JSON.
+# Fallback used when the evaluator returns unparseable JSON.
+# Empty lists are detected in run() and all pending questions are treated as
+# wrong so the session always makes forward progress.
 _EVAL_FALLBACK: dict[str, Any] = {
-    "acceptable": True,
+    "questions_correct": [],
+    "questions_wrong": [],
+    "questions_skipped": [],
+    "corrections": {},
     "feedback": "Good effort — moving on.",
-    "summary": "Comprehension task completed.",
 }
 
 # Characters of source text stored in the DB for evaluation context.
 # Keeps tasks JSON manageable while giving the evaluator useful context.
 _MAX_STORED_TEXT_CHARS: int = 4000
 
-# Maximum number of evaluated answer attempts before the task is forced complete.
-# Help requests and empty messages do not count toward this cap.
-_MAX_ANSWER_ATTEMPTS: int = 2
-
 # Shown when the user sends an empty message during the Q&A phase.
 _EMPTY_NUDGE: str = (
     "Take your time — answer the questions above, "
     "or type 'help' if something is unclear."
 )
-
-# Appended to evaluator feedback when the user has one retry remaining.
-_RETRY_NUDGE: str = "Try once more if you'd like:"
 
 # Minimum questions the user must have addressed to be allowed to quit early.
 _MIN_QUESTIONS_TO_QUIT: int = 3
@@ -294,34 +291,37 @@ async def _handle_help(
 
 
 async def _evaluate_response(
-    user_message: str,
-    questions: str,
+    accumulated_answers: str,
+    pending_questions: str,
     content_text: str,
     session_id: str | None,
 ) -> tuple[dict[str, Any], Any]:
-    """Evaluate the user's answers using Haiku as a judge.
+    """Evaluate accumulated answers against pending questions using Sonnet.
 
-    Calls Haiku with the answer-evaluation prompt. Parses the JSON response.
-    Falls back to _EVAL_FALLBACK on parse failure so the loop always completes.
+    Calls Sonnet with the answer-evaluation prompt. Returns which questions
+    were correctly answered, wrongly answered (with corrections), or skipped.
+    Falls back to _EVAL_FALLBACK on parse failure — the caller detects the
+    empty lists and treats all pending questions as wrong so progress continues.
 
     Args:
-        user_message: The user's answer text for this turn.
-        questions: The comprehension questions that were asked.
+        accumulated_answers: All answer attempts joined across turns.
+        pending_questions: Numbered pending questions (original 1-based indices).
         content_text: Source text used as grading context.
         session_id: Session identifier for observability.
 
     Returns:
-        Tuple of (eval_dict, usage). eval_dict has keys: acceptable (bool),
-        feedback (str), summary (str | None).
+        Tuple of (eval_dict, usage). eval_dict keys: questions_correct (list),
+        questions_wrong (list), questions_skipped (list), corrections (dict),
+        feedback (str).
     """
     user_content = (
-        f"Questions:\n{questions}\n\n"
+        f"Pending questions:\n{pending_questions}\n\n"
         f"Source text:\n{content_text}\n\n"
-        f"User answers:\n{user_message}"
+        f"Accumulated answers:\n{accumulated_answers}"
     )
     raw, usage = await call_anthropic(
         messages=[{"role": "user", "content": user_content}],
-        tier="haiku",
+        tier="sonnet",
         agent="answer_evaluator",
         system=_ANSWER_EVALUATION_PROMPT,
         session_id=session_id,
@@ -495,12 +495,13 @@ async def run(
 
     Turns 1+: gate logic —
       - Empty message: re-display task card with a nudge; no turn increment.
-      - Quit intent: evaluate to count questions addressed; complete if ≥
-        _MIN_QUESTIONS_TO_QUIT, otherwise prompt to continue; no increment.
+      - Quit intent: check questions_done in DB; complete if ≥
+        _MIN_QUESTIONS_TO_QUIT, otherwise prompt to continue; no evaluator call.
       - Help request (vocab/clarification/confusion/hint): call help responder,
         re-display task card; no turn increment.
-      - Answer attempt: evaluate with Haiku; reject up to _MAX_ANSWER_ATTEMPTS
-        then force complete.
+      - Answer attempt: accumulate answers, evaluate pending questions with
+        Sonnet, update questions_done; show corrections for wrong answers and
+        remaining questions until all are settled.
 
     All intermediate state is persisted in tasks["listening"] so each call
     is fully stateless between HTTP requests.
@@ -588,24 +589,27 @@ async def run(
         session.session_id,
     )
 
-    # Gate 3: quit intent — accept early exit only if enough questions answered.
+    # Gate 3: quit intent — read questions_done from DB; no evaluator call needed.
     if intent == "session_quit":
-        eval_result, _ = await _evaluate_response(
-            message,
-            t.get("questions", ""),
-            t.get("content_text", ""),
-            session.session_id,
+        try:
+            questions_done_quit: list[int] = json.loads(t.get("questions_done", "[]"))
+        except (json.JSONDecodeError, ValueError):
+            questions_done_quit = []
+        if len(questions_done_quit) >= _MIN_QUESTIONS_TO_QUIT:
+            return await _complete_task(
+                {"feedback": _QUIT_ACCEPTED}, session, db_session
+            )
+        try:
+            all_qs_quit: list[str] = json.loads(t.get("questions", "[]"))
+        except (json.JSONDecodeError, ValueError):
+            all_qs_quit = []
+        pending_quit = [
+            i for i in range(1, len(all_qs_quit) + 1) if i not in questions_done_quit
+        ]
+        task_card = _build_task_card(
+            t, remaining_indices=pending_quit if pending_quit else None
         )
-        addressed: list[int] = eval_result.get("questions_addressed", [])
-        if len(addressed) >= _MIN_QUESTIONS_TO_QUIT:
-            quit_eval = {
-                "acceptable": True,
-                "feedback": _QUIT_ACCEPTED,
-                "summary": None,
-            }
-            return await _complete_task(quit_eval, session, db_session)
-        task_card = _build_task_card(t)
-        nudge = _QUIT_TOO_FEW_TEMPLATE.format(answered=len(addressed))
+        nudge = _QUIT_TOO_FEW_TEMPLATE.format(answered=len(questions_done_quit))
         return AgentResult(
             message=f"{nudge}\n\n{task_card}",
             agent="listening",
@@ -631,34 +635,80 @@ async def run(
             usage=None,
         )
 
-    # Gate 5: answer attempt — evaluate, enforce 2-attempt cap.
-    eval_result, _ = await _evaluate_response(
-        message,
-        t.get("questions", ""),
-        t.get("content_text", ""),
-        session.session_id,
-    )
-    force_complete = session.turn_count >= _MAX_ANSWER_ATTEMPTS
+    # Gate 5: answer attempt — accumulate, evaluate pending, update done list.
+    try:
+        answers: list[str] = json.loads(t.get("answers", "[]"))
+    except (json.JSONDecodeError, ValueError):
+        answers = []
+    answers.append(message)
 
-    if eval_result.get("acceptable") or force_complete:
-        return await _complete_task(eval_result, session, db_session)
-
-    # Rejected — show only the unanswered questions; increment turn counter.
-    addressed: list[int] = eval_result.get("questions_addressed", [])
     try:
         all_questions: list[str] = json.loads(t.get("questions", "[]"))
     except (json.JSONDecodeError, ValueError):
         all_questions = []
-    remaining = [i for i in range(1, len(all_questions) + 1) if i not in addressed]
 
-    session.turn_count += 1
-    db_session.add(session)
-    db_session.commit()
+    try:
+        questions_done: list[int] = json.loads(t.get("questions_done", "[]"))
+    except (json.JSONDecodeError, ValueError):
+        questions_done = []
+
+    pending = [i for i in range(1, len(all_questions) + 1) if i not in questions_done]
+
+    # Format pending questions with their original numbers for the evaluator.
+    pending_qs_text = "\n".join(
+        f"{i}. {all_questions[i - 1]}" for i in pending if i <= len(all_questions)
+    )
+    combined_answers = "\n\n".join(
+        f"Attempt {j + 1}: {a}" for j, a in enumerate(answers)
+    )
+
+    # Persist the updated answer history before the API call.
+    update_task(
+        session.session_id, "listening", {"answers": json.dumps(answers)}, db_session
+    )
+
+    eval_result, _ = await _evaluate_response(
+        combined_answers, pending_qs_text, t.get("content_text", ""), session.session_id
+    )
+
+    newly_done: list[int] = eval_result.get("questions_correct", []) + eval_result.get(
+        "questions_wrong", []
+    )
+    # Forward-progress guard: if the evaluator returned all-empty lists (parse
+    # failure or confused response), treat all pending as wrong so we never loop.
+    if not newly_done and not eval_result.get("questions_skipped"):
+        newly_done = pending
+
+    all_done = sorted(set(questions_done) | set(newly_done))
+    update_task(
+        session.session_id,
+        "listening",
+        {"questions_done": json.dumps(all_done)},
+        db_session,
+    )
+
+    # Build corrections block for wrongly answered questions.
+    corrections: dict[str, str] = eval_result.get("corrections", {})
+    correction_lines = [f"Q{k}: {v}" for k, v in corrections.items()]
+    corrections_block = (
+        "\nCorrect answers:\n" + "\n".join(correction_lines) if correction_lines else ""
+    )
 
     feedback = eval_result.get("feedback", "").strip()
-    task_card = _build_task_card(t, remaining_indices=remaining if remaining else None)
+    response_prefix = (feedback + corrections_block).strip()
+
+    new_pending = [i for i in range(1, len(all_questions) + 1) if i not in all_done]
+
+    if not new_pending:
+        return await _complete_task(
+            {"feedback": response_prefix or "Well done — all questions covered."},
+            session,
+            db_session,
+        )
+
+    task_card = _build_task_card(t, remaining_indices=new_pending)
     return AgentResult(
-        message=f"{feedback}\n\n{_RETRY_NUDGE}\n\n{task_card}",
+        message=f"{response_prefix}\n\n{task_card}" if response_prefix else task_card,
         agent="listening",
         task_status="in_progress",
         usage=None,

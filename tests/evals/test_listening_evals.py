@@ -4,8 +4,9 @@ All api_client and acquire_content calls are mocked — no real network or
 model calls are made. Tests verify DB state after each scenario.
 
 Call sequence per turn (turns 1+):
-  intent_classifier (haiku) → answer_evaluator (haiku) [on answer attempt]
+  intent_classifier (haiku) → answer_evaluator (sonnet) [on answer attempt]
   intent_classifier (haiku) → help_responder (haiku/sonnet) [on help request]
+  intent_classifier (haiku) [on session_quit — no evaluator call]
 """
 
 import json
@@ -15,7 +16,7 @@ import pytest
 from sqlmodel import select
 
 from src.agents.listening import run
-from src.db.repo import create_session
+from src.db.repo import create_session, update_task
 from src.db.schemas import TutorSession, VocabularyItem
 from src.tools.content import ContentResult
 
@@ -53,48 +54,58 @@ _INTENT_ANSWER: tuple = (json.dumps({"intent": "answer"}), None)
 _INTENT_VOCAB: tuple = (json.dumps({"intent": "vocabulary"}), None)
 _INTENT_QUIT: tuple = (json.dumps({"intent": "session_quit"}), None)
 
-_EVAL_ACCEPTABLE: tuple = (
+# All 3 fixture questions answered correctly → completes the task.
+_EVAL_ALL_CORRECT: tuple = (
     json.dumps(
         {
-            "acceptable": True,
-            "questions_addressed": [1, 2, 3],
-            "feedback": "Good effort.",
-            "summary": "Solid comprehension of the regulations topic.",
+            "questions_correct": [1, 2, 3],
+            "questions_wrong": [],
+            "questions_skipped": [],
+            "corrections": {},
+            "feedback": "Excellent — all questions answered correctly.",
         }
     ),
     None,
 )
-_EVAL_UNACCEPTABLE: tuple = (
+# Q1 correct, Q2 wrong (with correction), Q3 skipped → pending=[3].
+_EVAL_PARTIAL: tuple = (
     json.dumps(
         {
-            "acceptable": False,
-            "questions_addressed": [1],
-            "feedback": "Try again.",
-            "summary": None,
+            "questions_correct": [1],
+            "questions_wrong": [2],
+            "questions_skipped": [3],
+            "corrections": {"2": "Regulations primarily affected small businesses."},
+            "feedback": "Good on Q1. Q2 incorrect — see correction. Q3 not addressed.",
         }
     ),
     None,
 )
-# Quit with enough questions addressed (≥ _MIN_QUESTIONS_TO_QUIT).
-_EVAL_QUIT_ENOUGH: tuple = (
+# All 3 questions wrong with corrections → newly_done=[1,2,3] → completes.
+_EVAL_ALL_WRONG: tuple = (
     json.dumps(
         {
-            "acceptable": False,
-            "questions_addressed": [1, 2, 3],
-            "feedback": "You addressed 3 questions — good effort on those.",
-            "summary": None,
+            "questions_correct": [],
+            "questions_wrong": [1, 2, 3],
+            "questions_skipped": [],
+            "corrections": {
+                "1": "The regulations affected small businesses most.",
+                "2": "Calls demanded more equitable policies.",
+                "3": "Disproportionate means the impact was uneven.",
+            },
+            "feedback": "Here are the correct answers for all three questions.",
         }
     ),
     None,
 )
-# Quit with too few questions addressed (< _MIN_QUESTIONS_TO_QUIT).
-_EVAL_QUIT_TOO_FEW: tuple = (
+# Q3 skipped only → pending=[3].
+_EVAL_ONE_SKIPPED: tuple = (
     json.dumps(
         {
-            "acceptable": False,
-            "questions_addressed": [1, 2],
-            "feedback": "You've only addressed 2 questions so far.",
-            "summary": None,
+            "questions_correct": [1, 2],
+            "questions_wrong": [],
+            "questions_skipped": [3],
+            "corrections": {},
+            "feedback": "Good on Q1 and Q2. Q3 was not addressed.",
         }
     ),
     None,
@@ -158,7 +169,7 @@ async def test_complete_run_writes_five_vocabulary_items(db_session: object) -> 
             _VOCAB_RESPONSE,  # turn 0: vocab_extractor
             _QUESTIONS_RESPONSE,  # turn 0: question_generator
             _INTENT_ANSWER,  # turn 1: intent_classifier
-            _EVAL_ACCEPTABLE,  # turn 1: answer_evaluator
+            _EVAL_ALL_CORRECT,  # turn 1: answer_evaluator
             _SUMMARY_RESPONSE,  # turn 1: listening_summary
         ]
         await run("", ts, db_session)
@@ -186,7 +197,7 @@ async def test_complete_run_sets_task_status_complete(db_session: object) -> Non
             _VOCAB_RESPONSE,
             _QUESTIONS_RESPONSE,
             _INTENT_ANSWER,
-            _EVAL_ACCEPTABLE,
+            _EVAL_ALL_CORRECT,
             _SUMMARY_RESPONSE,
         ]
         await run("", ts, db_session)
@@ -292,7 +303,7 @@ async def test_acceptable_evaluation_reaches_complete(db_session: object) -> Non
             _VOCAB_RESPONSE,
             _QUESTIONS_RESPONSE,
             _INTENT_ANSWER,
-            _EVAL_ACCEPTABLE,
+            _EVAL_ALL_CORRECT,
             _SUMMARY_RESPONSE,
         ]
         await run("", ts, db_session)
@@ -303,9 +314,9 @@ async def test_acceptable_evaluation_reaches_complete(db_session: object) -> Non
 
 
 @pytest.mark.asyncio
-async def test_unacceptable_evaluation_returns_in_progress(db_session: object) -> None:
-    """Judge returning acceptable=false must yield in_progress and increment turn."""
-    user_id = "user-judge-reject"
+async def test_skipped_questions_return_in_progress(db_session: object) -> None:
+    """When questions are skipped the agent stays in_progress with pending shown."""
+    user_id = "user-judge-partial"
     ts = _make_session(user_id, db_session)
 
     with (
@@ -317,21 +328,22 @@ async def test_unacceptable_evaluation_returns_in_progress(db_session: object) -
             _VOCAB_RESPONSE,
             _QUESTIONS_RESPONSE,
             _INTENT_ANSWER,
-            _EVAL_UNACCEPTABLE,
+            _EVAL_ONE_SKIPPED,  # Q1+Q2 correct, Q3 skipped → pending=[3]
         ]
         await run("", ts, db_session)
         db_session.refresh(ts)
-        result = await run("Bad answer.", ts, db_session)
+        result = await run("Q1 and Q2 answers.", ts, db_session)
 
     assert result.task_status == "in_progress"
+    # turn_count is not incremented on partial answer — cap removed.
     db_session.refresh(ts)
-    assert ts.turn_count == 2
+    assert ts.turn_count == 1
 
 
 @pytest.mark.asyncio
-async def test_max_turns_forces_complete(db_session: object) -> None:
-    """At turn_count == _MAX_ANSWER_ATTEMPTS the agent forces complete."""
-    user_id = "user-max-turns"
+async def test_all_wrong_answers_still_completes(db_session: object) -> None:
+    """All questions answered incorrectly must still complete (corrections shown)."""
+    user_id = "user-all-wrong"
     ts = _make_session(user_id, db_session)
 
     with (
@@ -343,16 +355,12 @@ async def test_max_turns_forces_complete(db_session: object) -> None:
             _VOCAB_RESPONSE,  # turn 0: vocab_extractor
             _QUESTIONS_RESPONSE,  # turn 0: question_generator
             _INTENT_ANSWER,  # turn 1: intent_classifier
-            _EVAL_UNACCEPTABLE,  # turn 1: answer_evaluator — rejected, count→2
-            _INTENT_ANSWER,  # turn 2: intent_classifier — force complete
-            _EVAL_UNACCEPTABLE,  # turn 2: answer_evaluator — force complete
-            _SUMMARY_RESPONSE,  # turn 2: listening_summary
+            _EVAL_ALL_WRONG,  # turn 1: all wrong → questions_done=[1,2,3] → complete
+            _SUMMARY_RESPONSE,  # turn 1: listening_summary
         ]
-        await run("", ts, db_session)  # turn 0 → in_progress
+        await run("", ts, db_session)
         db_session.refresh(ts)
-        await run("Bad answer.", ts, db_session)  # turn 1 → in_progress
-        db_session.refresh(ts)
-        result = await run("Bad answer.", ts, db_session)  # turn 2 → force complete
+        result = await run("Wrong answers for all.", ts, db_session)
 
     assert result.task_status == "complete"
 
@@ -432,7 +440,7 @@ async def test_help_then_answer_reaches_complete(db_session: object) -> None:
             _INTENT_VOCAB,  # turn 1: intent_classifier → vocabulary
             _HELP_RESPONSE,  # turn 1: help_responder
             _INTENT_ANSWER,  # turn 1 (retry): intent_classifier → answer
-            _EVAL_ACCEPTABLE,  # turn 1 (retry): answer_evaluator
+            _EVAL_ALL_CORRECT,  # turn 1 (retry): answer_evaluator
             _SUMMARY_RESPONSE,  # turn 1 (retry): listening_summary
         ]
         await run("", ts, db_session)
@@ -451,7 +459,7 @@ async def test_help_then_answer_reaches_complete(db_session: object) -> None:
 
 @pytest.mark.asyncio
 async def test_quit_with_enough_questions_completes(db_session: object) -> None:
-    """Quit with questions_addressed >= _MIN_QUESTIONS_TO_QUIT must complete."""
+    """Quit with questions_done >= _MIN_QUESTIONS_TO_QUIT must complete."""
     user_id = "user-quit-enough"
     ts = _make_session(user_id, db_session)
 
@@ -463,12 +471,18 @@ async def test_quit_with_enough_questions_completes(db_session: object) -> None:
         mock_ca.side_effect = [
             _VOCAB_RESPONSE,  # turn 0: vocab_extractor
             _QUESTIONS_RESPONSE,  # turn 0: question_generator
-            _INTENT_QUIT,  # turn 1: intent_classifier → session_quit
-            _EVAL_QUIT_ENOUGH,  # turn 1: answer_evaluator (3 addressed)
+            _INTENT_QUIT,  # turn 1: intent_classifier — no evaluator call
             _SUMMARY_RESPONSE,  # turn 1: listening_summary
         ]
         await run("", ts, db_session)
         db_session.refresh(ts)
+        # Pre-populate questions_done to simulate prior answer turns.
+        update_task(
+            ts.session_id,
+            "listening",
+            {"questions_done": json.dumps([1, 2, 3])},
+            db_session,
+        )
         result = await run("I want to stop here.", ts, db_session)
 
     assert result.task_status == "complete"
@@ -478,7 +492,7 @@ async def test_quit_with_enough_questions_completes(db_session: object) -> None:
 async def test_quit_with_too_few_questions_stays_in_progress(
     db_session: object,
 ) -> None:
-    """Quit with questions_addressed < _MIN_QUESTIONS_TO_QUIT must stay in_progress."""
+    """Quit with questions_done < _MIN_QUESTIONS_TO_QUIT must stay in_progress."""
     user_id = "user-quit-too-few"
     ts = _make_session(user_id, db_session)
 
@@ -490,11 +504,17 @@ async def test_quit_with_too_few_questions_stays_in_progress(
         mock_ca.side_effect = [
             _VOCAB_RESPONSE,  # turn 0: vocab_extractor
             _QUESTIONS_RESPONSE,  # turn 0: question_generator
-            _INTENT_QUIT,  # turn 1: intent_classifier → session_quit
-            _EVAL_QUIT_TOO_FEW,  # turn 1: answer_evaluator (2 addressed)
+            _INTENT_QUIT,  # turn 1: intent_classifier — no evaluator call
         ]
         await run("", ts, db_session)
         db_session.refresh(ts)
+        # Pre-populate questions_done with only 2 (below threshold).
+        update_task(
+            ts.session_id,
+            "listening",
+            {"questions_done": json.dumps([1, 2])},
+            db_session,
+        )
         result = await run("I give up.", ts, db_session)
 
     assert result.task_status == "in_progress"
